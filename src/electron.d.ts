@@ -1,0 +1,24 @@
+export interface Slide {
+    index: number;
+    image: string;
+    src: string; // The full path/url
+    notes: string;
+}
+
+export interface ConvertResponse {
+    success: boolean;
+    slides: Slide[];
+    error?: string;
+}
+
+declare global {
+    interface Window {
+        electronAPI: {
+            convertPptx: (filePath: string) => Promise<ConvertResponse>;
+            onConversionUpdate: (callback: (event: any, value: any) => void) => void;
+            getPathForFile: (file: File) => string;
+            selectFile: () => Promise<string | null>;
+            saveAllNotes: (filePath: string, slides: Slide[]) => Promise<{ success: boolean; error?: string }>;
+        };
+    }
+}
