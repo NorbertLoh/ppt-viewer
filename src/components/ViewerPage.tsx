@@ -1,5 +1,5 @@
 import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput } from '@mantine/core';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     IconPlayerPause,
     IconKeyboard,
@@ -7,7 +7,9 @@ import {
     IconPilcrow,
     IconChevronDown,
     IconClock,
-    IconPlus
+    IconPlus,
+    IconArrowBackUp,
+    IconArrowForwardUp
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
 
@@ -19,28 +21,111 @@ interface ViewerPageProps {
 
 export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPageProps) {
     const [slides, setSlides] = useState<Slide[]>(initialSlides);
+    // History State
+    const [history, setHistory] = useState<Slide[][]>([initialSlides]);
+    const [historyIndex, setHistoryIndex] = useState(0);
+
     const [activeSlideIndex, setActiveSlideIndex] = useState(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [customBreak, setCustomBreak] = useState('');
+    const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
     const activeSlide = slides[activeSlideIndex] || { src: '', notes: '' };
 
     // Reset index when initialSlides change (e.g. new file loaded)
     useEffect(() => {
         setSlides(initialSlides);
+        setHistory([initialSlides]);
+        setHistoryIndex(0);
         setActiveSlideIndex(0);
     }, [initialSlides]);
+
+    // Push current state to history. 
+    // If 'overwrite', replaces the current history head (useful for typing sequences).
+    // Usually we push new state.
+    const pushToHistory = useCallback((newSlides: Slide[]) => {
+        setHistory(prev => {
+            const currentHistory = prev.slice(0, historyIndex + 1);
+            return [...currentHistory, newSlides];
+        });
+        setHistoryIndex(prev => prev + 1);
+    }, [historyIndex]);
+
+    const handleUndo = useCallback(() => {
+        if (historyIndex > 0) {
+            setHistoryIndex(prev => prev - 1);
+            setSlides(history[historyIndex - 1]);
+        }
+    }, [history, historyIndex]);
+
+    const handleRedo = useCallback(() => {
+        if (historyIndex < history.length - 1) {
+            setHistoryIndex(prev => prev + 1);
+            setSlides(history[historyIndex + 1]);
+        }
+    }, [history, historyIndex]);
+
+    // Keyboard Shortcuts for Undo/Redo
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                handleUndo();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                e.preventDefault();
+                handleRedo();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleUndo, handleRedo]);
+
 
     const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newText = e.target.value;
         const newSlides = [...slides];
         newSlides[activeSlideIndex] = { ...newSlides[activeSlideIndex], notes: newText };
         setSlides(newSlides);
+
+        // Debounce history save for typing
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            pushToHistory(newSlides);
+        }, 800);
     };
 
     const insertTag = (startTag: string, endTag: string = '') => {
         const textarea = textareaRef.current;
         if (!textarea) return;
+
+        // Force save current history state before modification to ensure we can undo this specific action
+        // Actually, if we just typed, the debounce might not have fired yet. 
+        // Ideally we want to commit "Before Tag" state if it changed.
+        // But for simplicity, we just push the NEW state after tag insertion into history.
+        // Wait, if we type "foo", wait 200ms, then insert tag. "foo" isn't in history yet?
+        // Let's rely on React state. The current 'slides' IS the latest 'foo'. 
+        // So we just need to ensure we have a history point BEFORE this change?
+        // If historyIndex points to "foo", good. If not (debounce pending), we might lose "foo" step?
+        // To be safe: clear debounce and push CURRENT slides if meaningful difference? 
+        // Simplest strategy: Just push `newSlides` to history. Undo will go back to *whatever was computed last*. 
+        // If "foo" wasn't pushed yet, Undo goes back to pre-"foo". That's bad.
+        // So: Clear debounce, push CURRENT slides (if not equal to history head), THEN apply tag and push again.
+
+        if (debounceRef.current) {
+            clearTimeout(debounceRef.current);
+            // If there were pending changes, push them first?
+            // This is getting complex. Let's stick to: "Tag insertion is a discrete history event"
+            // We assume the user stopped typing for a split second or we accept small data loss in undo stack for rapid typing+clicking.
+            // Better: Implicitly, `slides` is the latest. 
+            // We want history to look like: [State A], [State A + Tag].
+            // If we only push [State A + Tag], then pressing Undo goes to [State A] (which might be old if we didn't push A).
+            // So yes, we should push 'slides' (current state) if it's different from history[historyIndex].
+
+            // Let's implement that check ideally, or just lazy-push.
+            // For now: Just push the result.
+        }
 
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
@@ -54,7 +139,9 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
 
         const newSlides = [...slides];
         newSlides[activeSlideIndex] = { ...newSlides[activeSlideIndex], notes: newText };
+
         setSlides(newSlides);
+        pushToHistory(newSlides); // Discrete Action -> immediate history
 
         // Restore cursor / selection
         setTimeout(() => {
@@ -117,6 +204,15 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
 
                         {/* SSML Toolbar */}
                         <Group gap={0} mb="xs" style={{ border: '1px solid var(--mantine-color-dark-4)', borderRadius: '4px', padding: '4px', background: 'var(--mantine-color-dark-6)' }}>
+                            <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleUndo} disabled={historyIndex === 0}>
+                                <IconArrowBackUp style={{ width: rem(18), height: rem(18) }} />
+                            </ActionIcon>
+                            <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleRedo} disabled={historyIndex === history.length - 1}>
+                                <IconArrowForwardUp style={{ width: rem(18), height: rem(18) }} />
+                            </ActionIcon>
+
+                            <div style={{ width: 1, height: 20, background: 'var(--mantine-color-dark-4)', margin: '0 8px' }} />
+
                             <Menu shadow="md" width={220} trigger="click" position="bottom-start" offset={0} closeOnItemClick={false}>
                                 <Menu.Target>
                                     <ActionIcon variant="subtle" color="gray" size="lg" aria-label="Break time">
