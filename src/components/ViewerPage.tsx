@@ -1,4 +1,4 @@
-import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput, Slider } from '@mantine/core';
+import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput, Slider, Text } from '@mantine/core';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     IconPlayerPause,
@@ -10,8 +10,7 @@ import {
     IconClock,
     IconPlus,
     IconArrowBackUp,
-    IconArrowForwardUp,
-    IconMovie
+    IconArrowForwardUp
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
 import { generateAudio, getAudioBuffer } from '../utils/tts';
@@ -289,17 +288,23 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         document.addEventListener('mouseup', onMouseUp);
     };
 
+    // Video Generation State
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [genStatus, setGenStatus] = useState('');
+
     const handleGenerateVideo = async () => {
+        if (isGenerating) return;
+        setIsGenerating(true);
+        setGenStatus('Preparing audio...');
+
         // Collect all audio buffers
         try {
             const slidesAudioString = [];
 
             for (const slide of slides) {
                 if (slide.notes && slide.notes.trim().length > 0) {
+                    setGenStatus(`Generating audio for slide ${slide.index}...`);
                     const buffer = await getAudioBuffer(slide.notes);
-                    // IPC can transfer ArrayBuffers?
-                    // Electron IPC handles Buffers (Nodejs) or Uint8Arrays.
-                    // ArrayBuffer from fetch needs to be cast to Uint8Array usually.
                     slidesAudioString.push({
                         index: slide.index,
                         audioData: new Uint8Array(buffer)
@@ -307,10 +312,10 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 }
             }
 
+            setGenStatus('Rendering video (this may take a while)...');
+
             // ipcRenderer available?
             if (ipcRenderer) {
-                // Show some loading indicator?
-                // For now just fire and forget or alert
                 const result = await ipcRenderer.invoke('generate-video', {
                     filePath,
                     slidesAudio: slidesAudioString
@@ -322,13 +327,16 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                     alert('Video generation failed: ' + result.error);
                 }
             } else {
-                alert("IPC Renderer not found!");
                 console.error("IPC Renderer not found");
+                alert("IPC Renderer not found");
             }
 
         } catch (e) {
             console.error("Error preparing video generation:", e);
             alert("Error preparing generation: " + e);
+        } finally {
+            setIsGenerating(false);
+            setGenStatus('');
         }
     };
 
@@ -339,8 +347,16 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 <Button variant="subtle" size="xs" onClick={onBack}>&larr; Back</Button>
                 <Title order={5}>Viewer</Title>
                 <Group>
-                    <Button variant="light" color="violet" size="xs" onClick={handleGenerateVideo} leftSection={<IconMovie size={16} />}>
-                        Generate Video
+                    {isGenerating && <Text size="xs" c="dimmed">{genStatus}</Text>}
+                    <Button
+                        size="xs"
+                        variant="light"
+                        color="blue"
+                        onClick={handleGenerateVideo}
+                        loading={isGenerating}
+                        disabled={isGenerating}
+                    >
+                        {isGenerating ? 'Generating...' : 'Generate Video'}
                     </Button>
                     <Button variant="filled" color="blue" size="xs" onClick={() => onSave(slides)}>Save All Changes</Button>
                 </Group>

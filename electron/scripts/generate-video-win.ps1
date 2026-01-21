@@ -19,8 +19,10 @@ try {
     }
 
     $ppt = New-Object -ComObject PowerPoint.Application
-    # Open Presentation (Visible=True usually needed for export operations to work reliably, or standard open)
-    $presentation = $ppt.Presentations.Open($InputPath)
+    # Open Presentation Hidden
+    # Open(FileName, ReadOnly, Untitled, WithWindow)
+    # ReadOnly=0(False), Untitled=0(False), WithWindow=0(False)
+    $presentation = $ppt.Presentations.Open($InputPath, 0, 0, 0)
     
     foreach ($slide in $presentation.Slides) {
         $index = $slide.SlideIndex

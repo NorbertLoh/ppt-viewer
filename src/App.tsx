@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader, Center, Text, Box } from '@mantine/core';
+import { Center, Text } from '@mantine/core';
 import { LandingPage } from './components/LandingPage';
 import { ViewerPage } from './components/ViewerPage';
 import type { Slide } from './electron'; // Import type
@@ -10,14 +10,11 @@ function App() {
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [debugInfo, setDebugInfo] = useState<any>(null);
-
   const handleManualSelect = async () => {
     if (window.electronAPI) {
       try {
         const path = await window.electronAPI.selectFile();
         if (path) {
-          setDebugInfo({ manualSelect: path });
           processFile(path);
         }
       } catch (e) {
@@ -77,14 +74,6 @@ function App() {
       console.log('File Object:', file);
       console.log('Detected Path:', filePath);
 
-      setDebugInfo({
-        name: file.name,
-        path: filePath,
-        type: file.type,
-        size: file.size,
-        isAbsolute: filePath && (filePath.includes(':\\') || filePath.startsWith('/'))
-      });
-
       if (!filePath) {
         setError('Could not detect file path. Please try using the "Select File" button below.');
         return;
@@ -97,7 +86,6 @@ function App() {
   if (loading) {
     return (
       <Center h="100vh">
-        <Loader size="xl" />
         <Text ml="md">Processing...</Text>
       </Center>
     );
@@ -124,14 +112,6 @@ function App() {
         <>
           <LandingPage onDrop={handleFileDrop} onSelectFile={handleManualSelect} />
           {loading && <Text ta="center" mt="sm">Analysing file...</Text>}
-          <Box p="xs" style={{ position: 'absolute', bottom: 0, left: 0, opacity: 0.7, background: 'black', color: 'white', maxWidth: '100%' }}>
-            <Text size="xs" fw={700}>Debug Info:</Text>
-            {debugInfo && (
-              <pre style={{ fontSize: 10, margin: 0 }}>
-                {JSON.stringify(debugInfo, null, 2)}
-              </pre>
-            )}
-          </Box>
         </>
       ) : (
         <ViewerPage slides={slides} onSave={handleSaveAll} onBack={() => setSlides(null)} filePath={currentFilePath || ''} />
