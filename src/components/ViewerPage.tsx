@@ -10,18 +10,21 @@ import {
     IconClock,
     IconPlus,
     IconArrowBackUp,
-    IconArrowForwardUp
+    IconArrowForwardUp,
+    IconMovie
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
-import { generateAudio } from '../utils/tts';
+import { generateAudio, getAudioBuffer } from '../utils/tts';
+const { ipcRenderer } = window.require('electron');
 
 interface ViewerPageProps {
     slides: Slide[];
+    filePath: string;
     onSave: (updatedSlides: Slide[]) => void;
     onBack: () => void;
 }
 
-export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPageProps) {
+export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: ViewerPageProps) {
     const [slides, setSlides] = useState<Slide[]>(initialSlides);
     // History State
     const [history, setHistory] = useState<Slide[][]>([initialSlides]);
@@ -286,13 +289,61 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
         document.addEventListener('mouseup', onMouseUp);
     };
 
+    const handleGenerateVideo = async () => {
+        // Collect all audio buffers
+        try {
+            const slidesAudioString = [];
+
+            for (const slide of slides) {
+                if (slide.notes && slide.notes.trim().length > 0) {
+                    const buffer = await getAudioBuffer(slide.notes);
+                    // IPC can transfer ArrayBuffers?
+                    // Electron IPC handles Buffers (Nodejs) or Uint8Arrays.
+                    // ArrayBuffer from fetch needs to be cast to Uint8Array usually.
+                    slidesAudioString.push({
+                        index: slide.index,
+                        audioData: new Uint8Array(buffer)
+                    });
+                }
+            }
+
+            // ipcRenderer available?
+            if (ipcRenderer) {
+                // Show some loading indicator?
+                // For now just fire and forget or alert
+                const result = await ipcRenderer.invoke('generate-video', {
+                    filePath,
+                    slidesAudio: slidesAudioString
+                });
+
+                if (result.success) {
+                    alert('Video generated successfully at: ' + result.outputPath);
+                } else {
+                    alert('Video generation failed: ' + result.error);
+                }
+            } else {
+                alert("IPC Renderer not found!");
+                console.error("IPC Renderer not found");
+            }
+
+        } catch (e) {
+            console.error("Error preparing video generation:", e);
+            alert("Error preparing generation: " + e);
+        }
+    };
+
     return (
         <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header / Toolbar */}
             <Group justify="space-between" p="xs" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)', background: 'var(--mantine-color-dark-7)' }}>
                 <Button variant="subtle" size="xs" onClick={onBack}>&larr; Back</Button>
                 <Title order={5}>Viewer</Title>
-                <Button variant="filled" color="blue" size="xs" onClick={() => onSave(slides)}>Save All Changes</Button>
+                <Group>
+                    <Button variant="light" color="violet" size="xs" onClick={handleGenerateVideo} leftSection={<IconMovie size={16} />}>
+                        Generate Video
+                    </Button>
+                    <Button variant="filled" color="blue" size="xs" onClick={() => onSave(slides)}>Save All Changes</Button>
+                </Group>
             </Group>
 
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -463,7 +514,7 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
                                 </Menu.Target>
                                 <Menu.Dropdown>
                                     <Menu.Label>Interpret As</Menu.Label>
-                                    <Menu.Item onClick={() => insertTag('<say-as interpret-as="characters">', '</say-as>')}>Spell Out</Menu.Item>
+                                    <Menu.Item onClick={() => insertTag('<say-as interpret-as="spell-out">', '</say-as>')}>Spell Out</Menu.Item>
                                     <Menu.Item onClick={() => insertTag('<say-as interpret-as="cardinal">', '</say-as>')}>Number (Cardinal)</Menu.Item>
                                     <Menu.Item onClick={() => insertTag('<say-as interpret-as="ordinal">', '</say-as>')}>Ordinal (1st, 2nd)</Menu.Item>
                                     <Menu.Item onClick={() => insertTag('<say-as interpret-as="digits">', '</say-as>')}>Digits</Menu.Item>

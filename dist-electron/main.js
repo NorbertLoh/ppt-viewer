@@ -180,3 +180,77 @@ electron_1.ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
         return { success: false, error: e.message };
     }
 });
+electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudio }) => {
+    console.log('MAIN: generate-video handler called');
+    console.log('Generate Video request for:', filePath);
+    const fs = require('fs');
+    const absolutePath = path_1.default.resolve(filePath);
+    if (!fs.existsSync(absolutePath)) {
+        return { success: false, error: 'PPT File not found' };
+    }
+    // 1. Show Save Dialog
+    const { dialog } = require('electron');
+    const { filePath: outputPath } = await dialog.showSaveDialog({
+        title: 'Save Video',
+        defaultPath: path_1.default.basename(absolutePath, '.pptx') + '.mp4',
+        filters: [{ name: 'MPEG-4 Video', extensions: ['mp4'] }]
+    });
+    if (!outputPath) {
+        return { success: false, error: 'User cancelled save' };
+    }
+    // 2. Save Audio Files to Temp Dir
+    const tempDir = fs.mkdtempSync(path_1.default.join(electron_1.app.getPath('temp'), 'ppt-video-gen-'));
+    console.log('Using temp dir for audio:', tempDir);
+    try {
+        for (const item of slidesAudio) {
+            // item.audioData is Uint8Array/Buffer
+            const audioPath = path_1.default.join(tempDir, `slide_${item.index}.wav`);
+            fs.writeFileSync(audioPath, Buffer.from(item.audioData));
+        }
+        // 3. Call PowerShell Script
+        const os = process.platform;
+        if (os === 'win32') {
+            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/generate-video-win.ps1');
+            const { spawn } = require('child_process');
+            const child = spawn('powershell.exe', [
+                '-NoProfile',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', scriptPath,
+                '-InputPath', absolutePath,
+                '-AudioDir', tempDir,
+                '-OutputPath', outputPath
+            ]);
+            return new Promise((resolve, reject) => {
+                let stdout = '';
+                let stderr = '';
+                child.stdout.on('data', (data) => { console.log('PS:', data.toString()); stdout += data; });
+                child.stderr.on('data', (data) => { console.error('PS Err:', data.toString()); stderr += data; });
+                child.on('close', (code) => {
+                    // Cleanup temp files
+                    try {
+                        fs.rmSync(tempDir, { recursive: true, force: true });
+                    }
+                    catch (e) {
+                        console.error("Cleanup error", e);
+                    }
+                    if (code === 0) {
+                        resolve({ success: true, outputPath });
+                    }
+                    else {
+                        reject(new Error(`Generation failed: ${stderr || stdout}`));
+                    }
+                });
+            });
+        }
+        return { success: false, error: 'Platform not supported' };
+    }
+    catch (e) {
+        // Cleanup on error
+        try {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+        catch (cleanupErr) { }
+        console.error("Generate Video Error:", e);
+        return { success: false, error: e.message };
+    }
+});

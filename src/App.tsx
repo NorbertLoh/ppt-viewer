@@ -134,7 +134,7 @@ function App() {
           </Box>
         </>
       ) : (
-        <ViewerPage slides={slides} onSave={handleSaveAll} onBack={() => setSlides(null)} />
+        <ViewerPage slides={slides} onSave={handleSaveAll} onBack={() => setSlides(null)} filePath={currentFilePath || ''} />
       )}
     </div>
   );
