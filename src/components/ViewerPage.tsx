@@ -1,7 +1,8 @@
-import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput } from '@mantine/core';
+import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput, Slider } from '@mantine/core';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     IconPlayerPause,
+    IconPlayerPlay,
     IconKeyboard,
     IconVolume,
     IconPilcrow,
@@ -12,6 +13,7 @@ import {
     IconArrowForwardUp
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
+import { generateAudio } from '../utils/tts';
 
 interface ViewerPageProps {
     slides: Slide[];
@@ -28,10 +30,113 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
     const [activeSlideIndex, setActiveSlideIndex] = useState(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [customBreak, setCustomBreak] = useState('');
-    const debounceRef = useRef<NodeJS.Timeout | null>(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const isSeekingRef = useRef(false);
 
     const activeSlide = slides[activeSlideIndex] || { src: '', notes: '' };
 
+    // Reset audio when slide changes
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+        }
+        setAudioUrl(null);
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setDuration(0);
+    }, [activeSlideIndex]);
+
+    const handlePlayAudio = async () => {
+        if (!activeSlide.notes) return;
+
+        try {
+            // Generate URL (cached if possible)
+            const url = await generateAudio(activeSlide.notes);
+
+            if (url !== audioUrl) {
+                setAudioUrl(url);
+                // We'll rely on onCanPlay to start playing if the user clicked play effectively
+                // But simple ref logic:
+                // We need to wait for the new source to load.
+                // We can set a flag "shouldPlay" or just call play in a useEffect dependent on audioUrl?
+                // For simplicity, let's just trigger play in a timeout or create a refined flow.
+                // Actually, the simplest standard way:
+            } else {
+                if (audioRef.current) {
+                    audioRef.current.play();
+                    setIsPlaying(true);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to play audio", error);
+        }
+    };
+
+    const togglePlay = async () => {
+        if (isPlaying) {
+            audioRef.current?.pause();
+            setIsPlaying(false);
+        } else {
+            // If we have a URL and it might be stale?
+            // The user requirement says "cache it as well so if the sentence is the same just play the audio dont generate new one".
+            // So we should ALWAYS check the generation to ensure we have the correct audio for the current text.
+            await handlePlayAudio();
+        }
+    };
+
+    // Auto-play when audioUrl changes (and it was triggered by user action essentially)
+    // To distinguish between "slide change reset" (url->null) and "generated" (null->url or url->url2),
+    // we can check if url is truthy.
+    useEffect(() => {
+        if (audioUrl && audioRef.current && !isPlaying) {
+            // Only auto-play if we just generated it?
+            // If I implement handlePlayAudio to set url, then here we play.
+            audioRef.current.play().then(() => setIsPlaying(true)).catch(e => console.error("Auto-play failed", e));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [audioUrl]);
+
+    const onTimeUpdate = () => {
+        if (audioRef.current && !isSeekingRef.current) {
+            setCurrentTime(audioRef.current.currentTime);
+        }
+    };
+
+    const onLoadedMetadata = () => {
+        if (audioRef.current) {
+            setDuration(audioRef.current.duration);
+        }
+    };
+
+    const onAudioEnded = () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+    };
+
+    const handleSeek = (value: number) => {
+        isSeekingRef.current = true;
+        setCurrentTime(value);
+    };
+
+    const handleSeekEnd = (value: number) => {
+        isSeekingRef.current = false;
+        if (audioRef.current) {
+            audioRef.current.currentTime = value;
+        }
+    };
+
+    const formatTime = (time: number) => {
+        const minutes = Math.floor(time / 60);
+        const seconds = Math.floor(time % 60);
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    };
     // Reset index when initialSlides change (e.g. new file loaded)
     useEffect(() => {
         setSlides(initialSlides);
@@ -156,6 +261,31 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
         setCustomBreak('');
     };
 
+    const [splitRatio, setSplitRatio] = useState(60); // Percentage height of top panel
+    const splitContainerRef = useRef<HTMLDivElement>(null);
+
+    const handleResizeMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const startY = e.clientY;
+        const startSplit = splitRatio;
+        const containerHeight = splitContainerRef.current?.clientHeight || 1;
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+            const deltaY = moveEvent.clientY - startY;
+            const deltaPercentage = (deltaY / containerHeight) * 100;
+            const newSplit = Math.min(Math.max(startSplit + deltaPercentage, 20), 80); // Clamp between 20% and 80%
+            setSplitRatio(newSplit);
+        };
+
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    };
+
     return (
         <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header / Toolbar */}
@@ -188,10 +318,22 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
                     </ScrollArea>
                 </div>
 
-                {/* Right Panel */}
-                <div style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--mantine-color-body)' }}>
+                {/* Right Panel (Resizable) */}
+                <div
+                    ref={splitContainerRef}
+                    style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--mantine-color-body)' }}
+                >
                     {/* Top: Slide View */}
-                    <Box style={{ flex: 2, position: 'relative', borderBottom: '1px solid var(--mantine-color-dark-4)', padding: '1rem', background: 'var(--mantine-color-dark-8)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Box style={{
+                        height: `${splitRatio}%`,
+                        position: 'relative',
+                        padding: '1rem',
+                        background: 'var(--mantine-color-dark-8)',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
                         <Image
                             src={activeSlide.src}
                             fit="contain"
@@ -199,10 +341,70 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
                         />
                     </Box>
 
-                    {/* Bottom: Notes + Toolbar */}
-                    <Box style={{ flex: 1, padding: '1rem', display: 'flex', flexDirection: 'column' }}>
+                    {/* Resize Handle */}
+                    <div
+                        onMouseDown={handleResizeMouseDown}
+                        style={{
+                            height: '6px',
+                            background: 'var(--mantine-color-dark-4)',
+                            cursor: 'ns-resize',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 10
+                        }}
+                    >
+                        <div style={{ width: 30, height: 2, background: 'var(--mantine-color-dimmed)', borderRadius: 1 }} />
+                    </div>
 
-                        {/* SSML Toolbar */}
+                    {/* Bottom: Notes + Toolbar */}
+                    <Box style={{ flex: 1, height: `${100 - splitRatio}%`, padding: '1rem', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+                        {/* Audio Player (First) */}
+                        <Box mb="md" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)', paddingBottom: '1rem' }}>
+                            <audio
+                                ref={audioRef}
+                                src={audioUrl || ''}
+                                onTimeUpdate={onTimeUpdate}
+                                onLoadedMetadata={onLoadedMetadata}
+                                onEnded={onAudioEnded}
+                            />
+
+                            <Group gap="md">
+                                <ActionIcon
+                                    variant="filled"
+                                    color={isPlaying ? "red" : "blue"}
+                                    size="lg"
+                                    radius="xl"
+                                    onClick={togglePlay}
+                                    disabled={!activeSlide.notes}
+                                >
+                                    {isPlaying ? <IconPlayerPause size={20} /> : <IconPlayerPlay size={20} />}
+                                </ActionIcon>
+
+                                <Box style={{ flex: 1 }}>
+                                    <Slider
+                                        value={currentTime}
+                                        min={0}
+                                        max={duration || 100}
+                                        onChange={handleSeek}
+                                        onChangeEnd={handleSeekEnd}
+                                        label={formatTime}
+                                        disabled={!audioUrl}
+                                    />
+                                    <Group justify="space-between" mt={4}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--mantine-color-dimmed)' }}>
+                                            {formatTime(currentTime)}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--mantine-color-dimmed)' }}>
+                                            {formatTime(duration)}
+                                        </div>
+                                    </Group>
+                                </Box>
+                            </Group>
+                        </Box>
+
+                        {/* SSML Toolbar (Second) */}
                         <Group gap={0} mb="xs" style={{ border: '1px solid var(--mantine-color-dark-4)', borderRadius: '4px', padding: '4px', background: 'var(--mantine-color-dark-6)' }}>
                             <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleUndo} disabled={historyIndex === 0}>
                                 <IconArrowBackUp style={{ width: rem(18), height: rem(18) }} />
@@ -292,6 +494,7 @@ export function ViewerPage({ slides: initialSlides, onSave, onBack }: ViewerPage
                             </Tooltip>
                         </Group>
 
+                        {/* Text Box (Third) */}
                         <Textarea
                             ref={textareaRef}
                             label="Presenter Notes"
