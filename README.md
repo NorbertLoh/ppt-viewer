@@ -1,73 +1,48 @@
-# React + TypeScript + Vite
+# PPT Viewer & Video Generator
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+An Electron-based application that views PowerPoint presentations, extracts speaker notes, generates TTS audio using a local server, and automates PowerPoint to create MP4 videos with synchronized audio.
 
-Currently, two official plugins are available:
+## Prerequisites
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+-   **OS**: Windows 10/11 (Required for PowerPoint automation)
+-   **Software**:
+    -   [Node.js](https://nodejs.org/) (v16+)
+    -   Microsoft PowerPoint (Desktop version installed)
+    -   [Docker Desktop](https://www.docker.com/products/docker-desktop/) (For local TTS)
 
-## React Compiler
+## Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/NorbertLoh/ppt-viewer.git
+    cd ppt-viewer
+    ```
 
-## Expanding the ESLint configuration
+2.  Install dependencies:
+    ```bash
+    npm install
+    ```
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Running the TTS Server
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+This application requires a local Mycroft Mimic 3 TTS server running in a Docker container.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Run the following command in a terminal to start the TTS server:
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+docker run -it --user root -p 59125:59125 mycroftai/mimic3
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+> **Note**: This maps port `59125` locally, which the application relies on to generate audio.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Running the Application
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Once the TTS server is running, start the application in development mode:
+
+```bash
+npm run dev
 ```
+
+1.  Select a PowerPoint file (`.pptx`).
+2.  View slides and notes.
+3.  Click **"Generate Video"** to create an MP4 with AI narration.
