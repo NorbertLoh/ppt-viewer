@@ -128,8 +128,50 @@ ipcMain.handle('convert-pptx', async (event, filePath) => {
             });
         }
 
+        else if (os === 'darwin') {
+            const scriptPath = path.join(__dirname, '../electron/scripts/convert-mac.applescript');
+            console.log('Script Path (Mac):', scriptPath);
+
+            const { spawn } = require('child_process');
+            const child = spawn('osascript', [
+                scriptPath,
+                absolutePath,
+                outputDir
+            ]);
+
+            return new Promise((resolve, reject) => {
+                let stdout = '';
+                let stderr = '';
+
+                child.stdout.on('data', (data: any) => { console.log('OSAScript:', data.toString()); stdout += data; });
+                child.stderr.on('data', (data: any) => { console.error('OSAScript Err:', data.toString()); stderr += data; });
+
+                child.on('close', (code: number) => {
+                    if (code === 0) {
+                        // Read manifest
+                        const manifestPath = path.join(outputDir, 'manifest.json');
+                        try {
+                            const fs = require('fs');
+                            const data = fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, '');
+                            const slides = JSON.parse(data);
+                            const slidesWithPaths = slides.map((s: any) => ({
+                                ...s,
+                                src: `file://${path.join(outputDir, s.image)}`
+                            }));
+                            resolve({ success: true, slides: slidesWithPaths });
+                        } catch (err) {
+                            reject(err);
+                        }
+                    } else {
+                        reject(new Error(`Conversion failed with code ${code}: ${stderr || stdout}`));
+                    }
+                });
+            });
+        }
+
         // TODO: Implement other platforms
         return { success: false, error: 'Platform not supported yet' };
+
 
     } catch (err: any) {
         console.error('Conversion error:', err);
@@ -192,9 +234,39 @@ ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
                     }
                 });
             });
+        } else if (os === 'darwin') {
+            const scriptPath = path.join(__dirname, '../electron/scripts/save-all-notes-mac.js');
+            // Use 'osascript -l JavaScript' for JXA
+            const { spawn } = require('child_process');
+            const child = spawn('osascript', [
+                '-l', 'JavaScript',
+                scriptPath,
+                absolutePath,
+                updateJsonPath
+            ]);
+
+            return new Promise((resolve, reject) => {
+                let stdout = '';
+                let stderr = '';
+
+                child.stdout.on('data', (data: any) => stdout += data);
+                child.stderr.on('data', (data: any) => stderr += data);
+
+                child.on('close', (code: number) => {
+                    // Cleanup temp file
+                    try { fs.unlinkSync(updateJsonPath); } catch (e) { }
+
+                    if (code === 0) {
+                        resolve({ success: true });
+                    } else {
+                        reject(new Error(`Save failed (Mac): ${stderr} | ${stdout}`));
+                    }
+                });
+            });
         }
 
         return { success: false, error: 'Save not supported on this platform yet' };
+
 
     } catch (e: any) {
         return { success: false, error: e.message };
