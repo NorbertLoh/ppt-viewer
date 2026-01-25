@@ -269,6 +269,39 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio }) => {
             });
         }
 
+        if (os === 'darwin') {
+            const scriptPath = path.join(__dirname, '../electron/scripts/generate-video-mac.applescript');
+            console.log('Script Path (Mac):', scriptPath);
+
+            const { spawn } = require('child_process');
+            // Spawn osascript
+            const child = spawn('osascript', [
+                scriptPath,
+                absolutePath,
+                tempDir,
+                outputPath
+            ]);
+
+            return new Promise((resolve, reject) => {
+                let stdout = '';
+                let stderr = '';
+
+                child.stdout.on('data', (data: any) => { console.log('OSAScript:', data.toString()); stdout += data; });
+                child.stderr.on('data', (data: any) => { console.error('OSAScript Err:', data.toString()); stderr += data; });
+
+                child.on('close', (code: number) => {
+                    // Cleanup temp files
+                    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) { console.error("Cleanup error", e); }
+
+                    if (code === 0) {
+                        resolve({ success: true, outputPath });
+                    } else {
+                        reject(new Error(`Generation failed: ${stderr || stdout}`));
+                    }
+                });
+            });
+        }
+
         return { success: false, error: 'Platform not supported' };
 
     } catch (e: any) {

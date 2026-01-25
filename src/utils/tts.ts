@@ -1,7 +1,8 @@
 const getAudioBlob = async (text: string): Promise<Blob> => {
     // Generate URL params for metadata
     const urlParams = new URLSearchParams();
-    urlParams.append('voice', 'en_UK/apope_low');
+    const voice = import.meta.env.VITE_TTS_VOICE || 'en_UK/apope_low';
+    urlParams.append('voice', voice);
     urlParams.append('ssml', 'true');
 
     // Clean text: remove invalid XML control characters (like Vertical Tab \x0b)
@@ -13,8 +14,10 @@ const getAudioBlob = async (text: string): Promise<Blob> => {
     // Server wraps in <speak> automatically, so we just send sanitized text
     const bodyText = sanitizedText;
 
+    const ttsUrl = import.meta.env.VITE_TTS_API_URL || 'http://localhost:59125/api/tts';
+
     // Use POST to avoid URL length limits
-    const response = await fetch(`http://localhost:59125/api/tts?${urlParams.toString()}`, {
+    const response = await fetch(`${ttsUrl}?${urlParams.toString()}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'text/plain' // or application/ssml+xml
