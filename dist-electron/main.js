@@ -118,10 +118,11 @@ electron_1.ipcMain.handle('convert-pptx', async (event, filePath) => {
             });
         }
         else if (os === 'darwin') {
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/convert-mac.applescript');
+            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/convert-mac.js');
             console.log('Script Path (Mac):', scriptPath);
             const { spawn } = require('child_process');
             const child = spawn('osascript', [
+                '-l', 'JavaScript',
                 scriptPath,
                 absolutePath,
                 outputDir

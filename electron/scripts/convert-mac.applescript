@@ -6,8 +6,27 @@ on run argv
     set inputPath to item 1 of argv
     set outputDir to item 2 of argv
     
-    -- Ensure output directory exists (handled by TS usually, but good to be safe)
-    -- We assume standard POSIX paths
+    -- 1. Ensure output directory exists (Parent of where we want the slides folder)
+    do shell script "mkdir -p " & quoted form of outputDir
+    
+    -- 2. Define the target "slides" folder path
+    -- We want: outputDir/slides
+    -- First, get the HFS path of outputDir (which exists)
+    set outputHFS to ""
+    tell application "System Events"
+        if exists disk item outputDir then
+            set outputHFS to path of disk item outputDir as string
+        else
+            error "Output dir does not exist: " & outputDir
+        end if
+    end tell
+    
+    -- outputHFS ends with ":" if it is a folder.
+    -- Append "slides" to create the target folder path
+    set destinationHFS to outputHFS & "slides"
+    
+    -- 3. Clean up previous attempt
+    do shell script "rm -rf " & quoted form of (outputDir & "/slides")
     
     tell application "Microsoft PowerPoint"
         activate
@@ -19,45 +38,40 @@ on run argv
             error "Failed to open presentation: " & errMsg
         end try
         
+        -- EXPORT AS PNG (Bulk)
+        -- We use the 'file' specifier with the string path.
+        -- This tells AppleScript it's a file path, even if it doesn't exist yet.
+        try
+             save pptPres in file destinationHFS as save as PNG
+        on error errMsg
+             error "Failed to export slides (Bulk Save): " & errMsg & " (Dest: " & destinationHFS & ")"
+        end try
+        
         set slideCount to count of slides of pptPres
         set slidesData to {}
         
         repeat with i from 1 to slideCount
             set currentSlide to slide i of pptPres
             
-            -- Image Path
-            set imageName to "slide_" & i & ".png"
-            set imagePath to outputDir & "/" & imageName
-            
-            -- Export Slide as PNG
-            -- PowerPoint Mac 'save' command with 'as save as PNG' saves the whole generic presentation format
-            -- To save a specific slide, we often use 'export' or specific save commands.
-            -- Actually, Mac PPT has a 'save slide' command or similar?
-            -- It seems 'save' on the slide object works best.
-            
-            try
-                 save currentSlide in (POSIX file imagePath) as save as PNG
-            on error errMsg
-                 -- Sometimes creating the file fails if folder issues, trying generic save
-            end try
+            -- Image Path Logic:
+            -- Mac PowerPoint Bulk Export creates "Slide1.PNG", "Slide2.PNG" ...
+            -- INSIDE the target folder we specified ("slides").
+            set imageName to "slides/Slide" & i & ".PNG"
             
             -- Extract Notes
             set notesText to ""
             try
-                -- Notes Page -> Shape 2 (body) is the standard pattern
-                -- We iterate shapes to find the body placeholder if needed, but standard is fixed.
                 set notesPage to notes page of currentSlide
-                -- Shape 2 is typically the text body in default layout
                 set notesText to content of text range of text frame of shape 2 of notesPage
             on error
-                -- Ignore if no notes or different layout
+                -- Ignore
             end try
             
-            -- Build JSON Object String (manual because AppleScript JSON is hard)
-            -- We need to escape quotes in notes
+            -- Escape JSON
             set escapedNotes to my findAndReplace(notesText, "\"", "\\\"")
             set escapedNotes to my findAndReplace(escapedNotes, "
-", "\\n") -- Handle newlines
+", "\\n")
+            set escapedNotes to my findAndReplace(escapedNotes, return, "\\n")
             
             set slideJson to "{ \"index\": " & i & ", \"image\": \"" & imageName & "\", \"notes\": \"" & escapedNotes & "\" }"
             set end of slidesData to slideJson
@@ -66,13 +80,10 @@ on run argv
         
         -- Close PPT
         close pptPres saving no
-        -- quit -- We might not want to quit if user has other things open, but consistent with Win script
-        quit
         
     end tell
     
     -- Write Manifest JSON
-    -- Join list with commas
     set jsonString to "[" & my joinList(slidesData, ",") & "]"
     set manifestPath to outputDir & "/manifest.json"
     
