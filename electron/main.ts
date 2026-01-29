@@ -68,14 +68,12 @@ ipcMain.handle('convert-pptx', async (event, filePath) => {
     }
 
     const os = process.platform;
-    // Use local directory for debugging to avoid sandbox issues
-    // const tempDir = app.getPath('temp');
-    const projectRoot = path.join(__dirname, '../../');
-    const outputDir = path.join(projectRoot, 'slides_debug', path.basename(absolutePath, path.extname(absolutePath)));
+    const tempDir = app.getPath('temp');
+    const outputDir = path.join(tempDir, 'ppt-viewer', path.basename(absolutePath, path.extname(absolutePath)));
 
     // Ensure parent dir exists
-    if (!fs.existsSync(path.join(projectRoot, 'slides_debug'))) {
-        fs.mkdirSync(path.join(projectRoot, 'slides_debug'));
+    if (!fs.existsSync(path.join(tempDir, 'ppt-viewer'))) {
+        fs.mkdirSync(path.join(tempDir, 'ppt-viewer'));
     }
 
     console.log('Output Dir:', outputDir);

@@ -63,13 +63,11 @@ electron_1.ipcMain.handle('convert-pptx', async (event, filePath) => {
         return { success: false, error: `File not found: ${absolutePath}` };
     }
     const os = process.platform;
-    // Use local directory for debugging to avoid sandbox issues
-    // const tempDir = app.getPath('temp');
-    const projectRoot = path_1.default.join(__dirname, '../../');
-    const outputDir = path_1.default.join(projectRoot, 'slides_debug', path_1.default.basename(absolutePath, path_1.default.extname(absolutePath)));
+    const tempDir = electron_1.app.getPath('temp');
+    const outputDir = path_1.default.join(tempDir, 'ppt-viewer', path_1.default.basename(absolutePath, path_1.default.extname(absolutePath)));
     // Ensure parent dir exists
-    if (!fs.existsSync(path_1.default.join(projectRoot, 'slides_debug'))) {
-        fs.mkdirSync(path_1.default.join(projectRoot, 'slides_debug'));
+    if (!fs.existsSync(path_1.default.join(tempDir, 'ppt-viewer'))) {
+        fs.mkdirSync(path_1.default.join(tempDir, 'ppt-viewer'));
     }
     console.log('Output Dir:', outputDir);
     try {
