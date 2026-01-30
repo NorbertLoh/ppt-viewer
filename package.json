@@ -17,6 +17,7 @@
     "@mantine/dropzone": "^8.3.12",
     "@mantine/hooks": "^8.3.12",
     "@tabler/icons-react": "^3.36.1",
+    "adm-zip": "^0.5.16",
     "electron-squirrel-startup": "^1.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
