@@ -218,88 +218,77 @@ ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
         return { success: false, error: 'File not found' };
     }
 
-    // Create temp JSON file for updates
-    // We only need index and notes
-    const updates = slides.map((s: any) => ({
-        index: s.index,
-        notes: s.notes
-    }));
-
-    const tempDir = app.getPath('temp');
-    const updateJsonPath = path.join(tempDir, `ppt-update-${Date.now()}.json`);
-
     try {
-        require('fs').writeFileSync(updateJsonPath, JSON.stringify(updates, null, 2), 'utf8');
+        if (process.platform === 'darwin') {
+            const app = require('electron').app;
+            const homeDir = app.getPath('home');
+            const officeContainer = path.join(homeDir, 'Library/Group Containers/UBF8T346G9.Office');
 
-        const os = process.platform;
-        if (os === 'win32') {
-            const scriptPath = path.join(__dirname, '../electron/scripts/save-all-notes-win.ps1');
+            // 1. Prepare Data File
+            // Format:
+            // ###SLIDE_START### 1
+            // Notes...
+            // ###SLIDE_END###
 
-            const { spawn } = require('child_process');
-            const child = spawn('powershell.exe', [
-                '-NoProfile',
-                '-ExecutionPolicy', 'Bypass',
-                '-File', scriptPath,
-                '-InputPath', absolutePath,
-                '-NotesJsonPath', updateJsonPath
-            ]);
+            let dataContent = "";
+            for (const s of slides) {
+                if (s.notes) {
+                    dataContent += `###SLIDE_START### ${s.index}\n${s.notes}\n###SLIDE_END###\n`;
+                }
+            }
 
-            return new Promise((resolve, reject) => {
-                let stdout = '';
-                let stderr = '';
+            const dataPath = path.join(officeContainer, `notes_data_${Date.now()}.txt`);
+            fs.writeFileSync(dataPath, dataContent, 'utf8');
 
-                child.stdout.on('data', (data: any) => stdout += data);
-                child.stderr.on('data', (data: any) => stderr += data);
+            // 2. Prepare Params File
+            const paramsPath = path.join(officeContainer, 'notes_params.txt');
+            // Content: PresentationPath|DataPath
+            const paramsContent = `${absolutePath}|${dataPath}`;
+            fs.writeFileSync(paramsPath, paramsContent, 'utf8');
 
-                child.on('close', (code: number) => {
-                    // Cleanup temp file
-                    try { fs.unlinkSync(updateJsonPath); } catch (e) { }
+            // 3. Trigger Macro
+            const scriptPath = path.join(__dirname, '../electron/scripts/trigger-macro.applescript');
 
-                    if (code === 0) {
-                        resolve({ success: true });
-                    } else {
-                        reject(new Error(`Save failed: ${stderr} | ${stdout}`));
-                    }
-                });
-            });
-        } else if (os === 'darwin') {
-            const scriptPath = path.join(__dirname, '../electron/scripts/save-all-notes-mac.js');
-            // Use 'osascript -l JavaScript' for JXA
+            // Args: macroName, pptPath
             const { spawn } = require('child_process');
             const child = spawn('osascript', [
-                '-l', 'JavaScript',
                 scriptPath,
-                absolutePath,
-                updateJsonPath
+                "UpdateNotes",
+                absolutePath
             ]);
 
-            return new Promise((resolve, reject) => {
+            await new Promise<void>((resolve, reject) => {
                 let stdout = '';
                 let stderr = '';
-
-                child.stdout.on('data', (data: any) => stdout += data);
-                child.stderr.on('data', (data: any) => stderr += data);
-
+                child.stdout.on('data', (d: any) => stdout += d);
+                child.stderr.on('data', (d: any) => stderr += d);
                 child.on('close', (code: number) => {
-                    // Cleanup temp file
-                    try { fs.unlinkSync(updateJsonPath); } catch (e) { }
+                    // Cleanup data file
+                    try { fs.unlinkSync(dataPath); } catch (e) { }
 
-                    if (code === 0) {
-                        resolve({ success: true });
+                    if (code === 0 && !stdout.includes("Error")) {
+                        console.log(`UpdateNotes macro triggered.`);
+                        resolve();
                     } else {
-                        reject(new Error(`Save failed (Mac): ${stderr} | ${stdout}`));
+                        console.error(`Failed to trigger UpdateNotes: ${stderr} ${stdout}`);
+                        reject(new Error(stdout || stderr));
                     }
                 });
             });
+
+            return { success: true };
+
+        } else {
+            // Windows implementation...
+            return { success: false, error: 'Save not supported on this platform yet' };
         }
-
-        return { success: false, error: 'Save not supported on this platform yet' };
-
 
     } catch (e: any) {
         return { success: false, error: e.message };
     }
 });
+
+
 
 ipcMain.handle('get-video-save-path', async () => {
     const { dialog } = require('electron');
@@ -356,14 +345,22 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOut
             fs.writeFileSync(audioFilePath, buffer);
             console.log(`Saved audio to ${audioFilePath}`);
 
+            console.log(`Saved audio to ${audioFilePath}`);
+
             if (process.platform === 'darwin') {
                 const scriptPath = path.join(__dirname, '../electron/scripts/trigger-macro.applescript');
 
-                // AppleScript arguments: audioPath, slideIndex, presentationPath
+                // 1. Write parameters to file (Replacing partial logic in trigger script)
+                // audio_params.txt content: "SlideIndex|AudioPath|PresentationPath"
+                const paramsContent = `${slide.index}|${audioFilePath}|${filePath}`;
+                const paramsPath = path.join(officeContainer, 'audio_params.txt');
+                fs.writeFileSync(paramsPath, paramsContent, 'utf8');
+
+                // 2. Call the GENERIC macro runner
+                // Args: macroName, pptPath
                 const child = spawn('osascript', [
                     scriptPath,
-                    audioFilePath,
-                    slide.index.toString(),
+                    "InsertAudio",
                     filePath
                 ]);
 

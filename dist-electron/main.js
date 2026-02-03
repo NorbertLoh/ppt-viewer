@@ -199,90 +199,97 @@ electron_1.ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
     if (!fs.existsSync(absolutePath)) {
         return { success: false, error: 'File not found' };
     }
-    // Create temp JSON file for updates
-    // We only need index and notes
-    const updates = slides.map((s) => ({
-        index: s.index,
-        notes: s.notes
-    }));
-    const tempDir = electron_1.app.getPath('temp');
-    const updateJsonPath = path_1.default.join(tempDir, `ppt-update-${Date.now()}.json`);
     try {
-        require('fs').writeFileSync(updateJsonPath, JSON.stringify(updates, null, 2), 'utf8');
-        const os = process.platform;
-        if (os === 'win32') {
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/save-all-notes-win.ps1');
-            const { spawn } = require('child_process');
-            const child = spawn('powershell.exe', [
-                '-NoProfile',
-                '-ExecutionPolicy', 'Bypass',
-                '-File', scriptPath,
-                '-InputPath', absolutePath,
-                '-NotesJsonPath', updateJsonPath
-            ]);
-            return new Promise((resolve, reject) => {
-                let stdout = '';
-                let stderr = '';
-                child.stdout.on('data', (data) => stdout += data);
-                child.stderr.on('data', (data) => stderr += data);
-                child.on('close', (code) => {
-                    // Cleanup temp file
-                    try {
-                        fs.unlinkSync(updateJsonPath);
-                    }
-                    catch (e) { }
-                    if (code === 0) {
-                        resolve({ success: true });
-                    }
-                    else {
-                        reject(new Error(`Save failed: ${stderr} | ${stdout}`));
-                    }
-                });
-            });
-        }
-        else if (os === 'darwin') {
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/save-all-notes-mac.js');
-            // Use 'osascript -l JavaScript' for JXA
+        if (process.platform === 'darwin') {
+            const app = require('electron').app;
+            const homeDir = app.getPath('home');
+            const officeContainer = path_1.default.join(homeDir, 'Library/Group Containers/UBF8T346G9.Office');
+            // 1. Prepare Data File
+            // Format:
+            // ###SLIDE_START### 1
+            // Notes...
+            // ###SLIDE_END###
+            let dataContent = "";
+            for (const s of slides) {
+                if (s.notes) {
+                    dataContent += `###SLIDE_START### ${s.index}\n${s.notes}\n###SLIDE_END###\n`;
+                }
+            }
+            const dataPath = path_1.default.join(officeContainer, `notes_data_${Date.now()}.txt`);
+            fs.writeFileSync(dataPath, dataContent, 'utf8');
+            // 2. Prepare Params File
+            const paramsPath = path_1.default.join(officeContainer, 'notes_params.txt');
+            // Content: PresentationPath|DataPath
+            const paramsContent = `${absolutePath}|${dataPath}`;
+            fs.writeFileSync(paramsPath, paramsContent, 'utf8');
+            // 3. Trigger Macro
+            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/trigger-macro.applescript');
+            // Args: macroName, pptPath
             const { spawn } = require('child_process');
             const child = spawn('osascript', [
-                '-l', 'JavaScript',
                 scriptPath,
-                absolutePath,
-                updateJsonPath
+                "UpdateNotes",
+                absolutePath
             ]);
-            return new Promise((resolve, reject) => {
+            await new Promise((resolve, reject) => {
                 let stdout = '';
                 let stderr = '';
-                child.stdout.on('data', (data) => stdout += data);
-                child.stderr.on('data', (data) => stderr += data);
+                child.stdout.on('data', (d) => stdout += d);
+                child.stderr.on('data', (d) => stderr += d);
                 child.on('close', (code) => {
-                    // Cleanup temp file
+                    // Cleanup data file
                     try {
-                        fs.unlinkSync(updateJsonPath);
+                        fs.unlinkSync(dataPath);
                     }
                     catch (e) { }
-                    if (code === 0) {
-                        resolve({ success: true });
+                    if (code === 0 && !stdout.includes("Error")) {
+                        console.log(`UpdateNotes macro triggered.`);
+                        resolve();
                     }
                     else {
-                        reject(new Error(`Save failed (Mac): ${stderr} | ${stdout}`));
+                        console.error(`Failed to trigger UpdateNotes: ${stderr} ${stdout}`);
+                        reject(new Error(stdout || stderr));
                     }
                 });
             });
+            return { success: true };
         }
-        return { success: false, error: 'Save not supported on this platform yet' };
+        else {
+            // Windows implementation...
+            return { success: false, error: 'Save not supported on this platform yet' };
+        }
     }
     catch (e) {
         return { success: false, error: e.message };
     }
 });
-electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudio }) => {
+electron_1.ipcMain.handle('get-video-save-path', async () => {
+    const { dialog } = require('electron');
+    const win = require('electron').BrowserWindow.getFocusedWindow();
+    const app = require('electron').app;
+    const path = require('path');
+    const result = await dialog.showSaveDialog(win, {
+        title: 'Save Video As',
+        defaultPath: path.join(app.getPath('documents'), 'Output.mp4'),
+        filters: [{ name: 'MPEG-4 Video', extensions: ['mp4'] }]
+    });
+    if (result.canceled || !result.filePath) {
+        return null;
+    }
+    return result.filePath;
+});
+electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOutputPath }) => {
     console.log('Generate Video Request (PPAM Flow)');
     const path = require('path');
     const fs = require('fs');
     const { spawn } = require('child_process');
     const os = require('os');
     const app = require('electron').app;
+    // videoOutputPath is now passed in
+    if (!videoOutputPath) {
+        return { success: false, error: "No output path provided." };
+    }
+    console.log("Target Video Path:", videoOutputPath);
     // Define the Office Group Container path for sandboxed access
     const homeDir = app.getPath('home');
     const officeContainer = path.join(homeDir, 'Library/Group Containers/UBF8T346G9.Office');
@@ -303,13 +310,19 @@ electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudi
             const audioFilePath = path.join(audioSessionDir, audioFileName);
             fs.writeFileSync(audioFilePath, buffer);
             console.log(`Saved audio to ${audioFilePath}`);
+            console.log(`Saved audio to ${audioFilePath}`);
             if (process.platform === 'darwin') {
                 const scriptPath = path.join(__dirname, '../electron/scripts/trigger-macro.applescript');
-                // AppleScript arguments: audioPath, slideIndex, presentationPath
+                // 1. Write parameters to file (Replacing partial logic in trigger script)
+                // audio_params.txt content: "SlideIndex|AudioPath|PresentationPath"
+                const paramsContent = `${slide.index}|${audioFilePath}|${filePath}`;
+                const paramsPath = path.join(officeContainer, 'audio_params.txt');
+                fs.writeFileSync(paramsPath, paramsContent, 'utf8');
+                // 2. Call the GENERIC macro runner
+                // Args: macroName, pptPath
                 const child = spawn('osascript', [
                     scriptPath,
-                    audioFilePath,
-                    slide.index.toString(),
+                    "InsertAudio",
                     filePath
                 ]);
                 await new Promise((resolve, reject) => {
@@ -333,7 +346,36 @@ electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudi
                 // Windows fallback (if needed later)
             }
         }
-        return { success: true, outputPath: 'Audio inserted via PowerPoint Add-in' };
+        if (process.platform === 'darwin') {
+            const exportScriptPath = path.join(__dirname, '../electron/scripts/export-to-video.applescript');
+            // Args: outputPath, presentationPath (filePath)
+            const child = spawn('osascript', [
+                exportScriptPath,
+                videoOutputPath,
+                filePath
+            ]);
+            await new Promise((resolve, reject) => {
+                let stdout = '';
+                let stderr = '';
+                child.stdout.on('data', (d) => stdout += d);
+                child.stderr.on('data', (d) => stderr += d);
+                child.on('close', (code) => {
+                    // Note: 'save as movie' might return 0 but export continues in PPT background.
+                    if (code === 0 && !stdout.includes("Error")) {
+                        console.log(`Video export initiated: ${videoOutputPath}`);
+                        resolve();
+                    }
+                    else {
+                        console.error(`Export failed: ${stderr || stdout}`);
+                        reject(new Error(stdout || stderr));
+                    }
+                });
+            });
+            return { success: true, outputPath: videoOutputPath };
+        }
+        else {
+            return { success: false, error: "Windows video export not implemented" };
+        }
     }
     catch (e) {
         console.error('Generation failed:', e);

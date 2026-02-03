@@ -7,54 +7,75 @@ function run(argv) {
     var jsonPath = argv[1];
 
     var app = Application('Microsoft PowerPoint');
-    app.includeStandardAdditions = true;
+    // app.includeStandardAdditions = true; // Use currentApp for file IO
 
-    // Read JSON content
-    var jsonContent = app.read(Path(jsonPath));
+    var currentApp = Application.currentApplication();
+    currentApp.includeStandardAdditions = true;
+
+    // Read JSON content using currentApp (osascript) to avoid sandbox issues
+    var jsonContent = currentApp.read(Path(jsonPath));
     var updates = JSON.parse(jsonContent);
 
-    app.activate();
+    // app.activate(); // REMOVED: Do not steal focus
 
-    // Open Presentation
-    // JXA open command
-    var pptPres = app.open(Path(inputPath));
+    var pptPres = null;
+    var wasAlreadyOpen = false;
+
+    // Check if presentation is already open
+    var openPresCount = app.presentations.length;
+    for (var i = 0; i < openPresCount; i++) {
+        var p = app.presentations[i];
+        // Check path (Mac paths might vary slightly, checking name or full path)
+        try {
+            if (p.fullName() === inputPath || p.path() === inputPath) {
+                pptPres = p;
+                wasAlreadyOpen = true;
+                break;
+            }
+        } catch (e) { }
+    }
+
+    if (!pptPres) {
+        // Open Presentation (hidden if possible, though JXA 'open' usually shows window)
+        // We can minimize it? Or just let it run in bg.
+        pptPres = app.open(Path(inputPath));
+        // pptPres.window.minimized = true; // Optional: try to minimize
+    }
 
     // Iterate updates
     updates.forEach(function (item) {
         var idx = item.index;
         var newNotes = item.notes;
 
-        // Slide indices are 1-based in PPT, check if JSON provided 1-based (usually is from our code)
-        var slide = pptPres.slides[idx - 1]; // JXA arrays are 0-based? 
-        // Wait, 'pptPres.slides' is a collection.
-        // Collection access in JXA can be by index (0-based) or by name?
-        // Usually JXA collections are 0-based access for `[i]`.
-        // BUT PowerPoint DOM might be 1-based if using .item()?
-        // Let's safe-check. If idx is 1 (Slide 1), we want 0-th element probably.
-
-        // Actually, reliable way: `pptPres.slides[idx - 1]`
-
         try {
+            // Slide indices are 1-based in PPT DOM usually
+            // Access by index seems to be 0-based in JXA arrays, but PPT collections can be 1-based.
+            // Let's rely on standard collection access.
+            // If we generated indices as 1-based, we might need [idx-1].
+            // BUT, if we are unsure, we can try to find by index property if available.
+            // Let's assume input 'idx' is 1-based (slide number).
+
+            var slide = pptPres.slides[idx - 1];
+
             // Notes Page
             var notesPage = slide.notesPage;
-            // Shape 2 is body
-            // In JXA, shapes is a collection
-            // `notesPage.shapes[1]` (0-based index 1 = 2nd item)?
-            // Or `notesPage.shapes.item(2)`?
-
-            // Let's assume standard JXA array access
+            // Shape 2 is body text placeholder usually
             var notesShape = notesPage.shapes[1]; // 2nd shape
 
             // Set Text
-            // notesShape.textFrame.textRange.content = newNotes
             notesShape.textFrame.textRange.content = newNotes;
         } catch (e) {
             console.log("Error updating slide " + idx + ": " + e.message);
         }
     });
 
-    // Save and Close
+    // Save
     pptPres.save();
-    pptPres.close();
-    app.quit();
+
+    // Close ONLY if we opened it
+    if (!wasAlreadyOpen) {
+        pptPres.close();
+    }
+
+    // app.quit(); // REMOVED: Keep app running
 }
