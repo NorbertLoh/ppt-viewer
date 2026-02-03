@@ -277,109 +277,66 @@ electron_1.ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
     }
 });
 electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudio }) => {
-    console.log('MAIN: generate-video handler called');
-    console.log('Generate Video request for:', filePath);
+    console.log('Generate Video Request (PPAM Flow)');
+    const path = require('path');
     const fs = require('fs');
-    const absolutePath = path_1.default.resolve(filePath);
-    if (!fs.existsSync(absolutePath)) {
-        return { success: false, error: 'PPT File not found' };
-    }
-    // 1. Show Save Dialog
-    const { dialog } = require('electron');
-    const { filePath: outputPath } = await dialog.showSaveDialog({
-        title: 'Save Video',
-        defaultPath: path_1.default.basename(absolutePath, '.pptx') + '.mp4',
-        filters: [{ name: 'MPEG-4 Video', extensions: ['mp4'] }]
-    });
-    if (!outputPath) {
-        return { success: false, error: 'User cancelled save' };
-    }
-    // 2. Save Audio Files to Temp Dir
-    const tempDir = fs.mkdtempSync(path_1.default.join(electron_1.app.getPath('temp'), 'ppt-video-gen-'));
-    console.log('Using temp dir for audio:', tempDir);
+    const { spawn } = require('child_process');
+    const os = require('os');
+    const app = require('electron').app;
+    // Define the Office Group Container path for sandboxed access
+    const homeDir = app.getPath('home');
+    const officeContainer = path.join(homeDir, 'Library/Group Containers/UBF8T346G9.Office');
+    const audioSessionDir = path.join(officeContainer, 'TemporaryAudio', `session-${Date.now()}`);
+    // Ensure directory exists
     try {
-        for (const item of slidesAudio) {
-            // item.audioData is Uint8Array/Buffer
-            const audioPath = path_1.default.join(tempDir, `slide_${item.index}.wav`);
-            fs.writeFileSync(audioPath, Buffer.from(item.audioData));
-        }
-        // 3. Call PowerShell Script
-        const os = process.platform;
-        if (os === 'win32') {
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/generate-video-win.ps1');
-            const { spawn } = require('child_process');
-            const child = spawn('powershell.exe', [
-                '-NoProfile',
-                '-ExecutionPolicy', 'Bypass',
-                '-File', scriptPath,
-                '-InputPath', absolutePath,
-                '-AudioDir', tempDir,
-                '-OutputPath', outputPath
-            ]);
-            return new Promise((resolve, reject) => {
-                let stdout = '';
-                let stderr = '';
-                child.stdout.on('data', (data) => { console.log('PS:', data.toString()); stdout += data; });
-                child.stderr.on('data', (data) => { console.error('PS Err:', data.toString()); stderr += data; });
-                child.on('close', (code) => {
-                    // Cleanup temp files
-                    try {
-                        fs.rmSync(tempDir, { recursive: true, force: true });
-                    }
-                    catch (e) {
-                        console.error("Cleanup error", e);
-                    }
-                    if (code === 0) {
-                        resolve({ success: true, outputPath });
-                    }
-                    else {
-                        reject(new Error(`Generation failed: ${stderr || stdout}`));
-                    }
-                });
-            });
-        }
-        if (os === 'darwin') {
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/generate-video-mac.applescript');
-            console.log('Script Path (Mac):', scriptPath);
-            const { spawn } = require('child_process');
-            // Spawn osascript
-            const child = spawn('osascript', [
-                scriptPath,
-                absolutePath,
-                tempDir,
-                outputPath
-            ]);
-            return new Promise((resolve, reject) => {
-                let stdout = '';
-                let stderr = '';
-                child.stdout.on('data', (data) => { console.log('OSAScript:', data.toString()); stdout += data; });
-                child.stderr.on('data', (data) => { console.error('OSAScript Err:', data.toString()); stderr += data; });
-                child.on('close', (code) => {
-                    // Cleanup temp files
-                    try {
-                        fs.rmSync(tempDir, { recursive: true, force: true });
-                    }
-                    catch (e) {
-                        console.error("Cleanup error", e);
-                    }
-                    if (code === 0) {
-                        resolve({ success: true, outputPath });
-                    }
-                    else {
-                        reject(new Error(`Generation failed: ${stderr || stdout}`));
-                    }
-                });
-            });
-        }
-        return { success: false, error: 'Platform not supported' };
+        fs.mkdirSync(audioSessionDir, { recursive: true });
     }
     catch (e) {
-        // Cleanup on error
-        try {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+        console.error("Failed to create Office container dir:", e);
+        return { success: false, error: "Could not create audio directory in Office container. Check permissions." };
+    }
+    try {
+        for (const slide of slidesAudio) {
+            console.log(`Processing slide ${slide.index}`);
+            const buffer = Buffer.from(slide.audioData);
+            const audioFileName = `audio_${slide.index}.mp3`;
+            const audioFilePath = path.join(audioSessionDir, audioFileName);
+            fs.writeFileSync(audioFilePath, buffer);
+            console.log(`Saved audio to ${audioFilePath}`);
+            if (process.platform === 'darwin') {
+                const scriptPath = path.join(__dirname, '../electron/scripts/trigger-macro.applescript');
+                // AppleScript arguments: audioPath, slideIndex, presentationPath
+                const child = spawn('osascript', [
+                    scriptPath,
+                    audioFilePath,
+                    slide.index.toString(),
+                    filePath
+                ]);
+                await new Promise((resolve, reject) => {
+                    let stdout = '';
+                    let stderr = '';
+                    child.stdout.on('data', (d) => stdout += d);
+                    child.stderr.on('data', (d) => stderr += d);
+                    child.on('close', (code) => {
+                        if (code === 0 && !stdout.includes("Error")) {
+                            console.log(`Macro triggered for slide ${slide.index}`);
+                            resolve();
+                        }
+                        else {
+                            console.error(`Failed for slide ${slide.index}: ${stderr} ${stdout}`);
+                            reject(new Error(stdout || stderr));
+                        }
+                    });
+                });
+            }
+            else {
+                // Windows fallback (if needed later)
+            }
         }
-        catch (cleanupErr) { }
-        console.error("Generate Video Error:", e);
+        return { success: true, outputPath: 'Audio inserted via PowerPoint Add-in' };
+    }
+    catch (e) {
+        console.error('Generation failed:', e);
         return { success: false, error: e.message };
     }
 });
