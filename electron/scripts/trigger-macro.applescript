@@ -11,7 +11,7 @@ on run {audioPath, slideIndex, pptPath}
     do shell script "echo " & quoted form of fileContent & " > " & quoted form of paramsInfoPath
     
     tell application "Microsoft PowerPoint"
-        activate
+        -- activate removed
         open (POSIX file pptPath)
         
         try

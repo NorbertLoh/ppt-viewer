@@ -301,13 +301,37 @@ ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
     }
 });
 
-ipcMain.handle('generate-video', async (event, { filePath, slidesAudio }) => {
+ipcMain.handle('get-video-save-path', async () => {
+    const { dialog } = require('electron');
+    const win = require('electron').BrowserWindow.getFocusedWindow();
+    const app = require('electron').app;
+    const path = require('path');
+
+    const result = await dialog.showSaveDialog(win!, {
+        title: 'Save Video As',
+        defaultPath: path.join(app.getPath('documents'), 'Output.mp4'),
+        filters: [{ name: 'MPEG-4 Video', extensions: ['mp4'] }]
+    });
+
+    if (result.canceled || !result.filePath) {
+        return null;
+    }
+    return result.filePath;
+});
+
+ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOutputPath }) => {
     console.log('Generate Video Request (PPAM Flow)');
     const path = require('path');
     const fs = require('fs');
     const { spawn } = require('child_process');
     const os = require('os');
     const app = require('electron').app;
+
+    // videoOutputPath is now passed in
+    if (!videoOutputPath) {
+        return { success: false, error: "No output path provided." };
+    }
+    console.log("Target Video Path:", videoOutputPath);
 
     // Define the Office Group Container path for sandboxed access
     const homeDir = app.getPath('home');
@@ -363,7 +387,39 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio }) => {
             }
         }
 
-        return { success: true, outputPath: 'Audio inserted via PowerPoint Add-in' };
+
+
+        if (process.platform === 'darwin') {
+            const exportScriptPath = path.join(__dirname, '../electron/scripts/export-to-video.applescript');
+
+            // Args: outputPath, presentationPath (filePath)
+            const child = spawn('osascript', [
+                exportScriptPath,
+                videoOutputPath,
+                filePath
+            ]);
+
+            await new Promise<void>((resolve, reject) => {
+                let stdout = '';
+                let stderr = '';
+                child.stdout.on('data', (d: any) => stdout += d);
+                child.stderr.on('data', (d: any) => stderr += d);
+                child.on('close', (code: number) => {
+                    // Note: 'save as movie' might return 0 but export continues in PPT background.
+                    if (code === 0 && !stdout.includes("Error")) {
+                        console.log(`Video export initiated: ${videoOutputPath}`);
+                        resolve();
+                    } else {
+                        console.error(`Export failed: ${stderr || stdout}`);
+                        reject(new Error(stdout || stderr));
+                    }
+                });
+            });
+
+            return { success: true, outputPath: videoOutputPath };
+        } else {
+            return { success: false, error: "Windows video export not implemented" };
+        }
 
     } catch (e: any) {
         console.error('Generation failed:', e);

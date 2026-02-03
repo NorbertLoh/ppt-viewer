@@ -294,31 +294,38 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
 
     const handleGenerateVideo = async () => {
         if (isGenerating) return;
-        setIsGenerating(true);
-        setGenStatus('Preparing audio...');
 
-        // Collect all audio buffers
         try {
-            const slidesAudioString = [];
-
-            for (const slide of slides) {
-                if (slide.notes && slide.notes.trim().length > 0) {
-                    setGenStatus(`Generating audio for slide ${slide.index}...`);
-                    const buffer = await getAudioBuffer(slide.notes);
-                    slidesAudioString.push({
-                        index: slide.index,
-                        audioData: new Uint8Array(buffer)
-                    });
-                }
-            }
-
-            setGenStatus('Rendering video (this may take a while)...');
-
-            // ipcRenderer available?
+            // 1. Ask for Save Path FIRST
             if (ipcRenderer) {
+                const savePath = await ipcRenderer.invoke('get-video-save-path');
+                if (!savePath) {
+                    return; // User cancelled
+                }
+
+                setIsGenerating(true);
+                setGenStatus('Preparing audio...');
+
+                // 2. Generate Audio
+                const slidesAudioString = [];
+                for (const slide of slides) {
+                    if (slide.notes && slide.notes.trim().length > 0) {
+                        setGenStatus(`Generating audio for slide ${slide.index}...`);
+                        const buffer = await getAudioBuffer(slide.notes);
+                        slidesAudioString.push({
+                            index: slide.index,
+                            audioData: new Uint8Array(buffer)
+                        });
+                    }
+                }
+
+                setGenStatus('Rendering video (this may take a while)...');
+
+                // 3. Call Backend with savePath
                 const result = await ipcRenderer.invoke('generate-video', {
                     filePath,
-                    slidesAudio: slidesAudioString
+                    slidesAudio: slidesAudioString,
+                    videoOutputPath: savePath
                 });
 
                 if (result.success) {
@@ -326,6 +333,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 } else {
                     alert('Video generation failed: ' + result.error);
                 }
+
             } else {
                 console.error("IPC Renderer not found");
                 alert("IPC Renderer not found");
