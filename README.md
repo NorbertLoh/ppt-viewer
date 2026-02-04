@@ -8,7 +8,7 @@ An Electron-based application that views PowerPoint presentations, extracts spea
 -   **Software**:
     -   [Node.js](https://nodejs.org/) (v16+)
     -   Microsoft PowerPoint (Desktop version installed)
-    -   [Docker Desktop](https://www.docker.com/products/docker-desktop/) (For local TTS)
+    -   [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Required only for **Local/Dev** mode)
 
 ## Setup
 
@@ -25,37 +25,35 @@ An Electron-based application that views PowerPoint presentations, extracts spea
 
 ## Configuration
 
-### 1. Google Cloud Text-to-Speech
-To use the high-quality Chirp 3 HD voices, you need a Google Cloud Service Account key.
+### 1. Production Mode (Google Cloud TTS) - Recommended
+This mode uses Google's high-quality "Chirp 3 HD" voices.
 
-1.  Place your Service Account JSON key file in the root directory of the project.
-2.  Rename the file to `gcp-key.json`.
-3.  Ensure your `.env` file matches the following:
-    ```env
-    TTS_PROVIDER=gcp
-    GOOGLE_APPLICATION_CREDENTIALS=./gcp-key.json
-    ```
+1.  **Obtain Key**: Create a Service Account in Google Cloud and download the JSON key file.
+2.  **Launch App**: Open the PPT Viewer application.
+3.  **Configure**: Click the **Settings (Gear) icon** in the top-left corner.
+4.  **Upload**: Click **"Select JSON Key"** and choose your downloaded `.json` file.
+    *   The app will securely store the path and automatically switch to Google Cloud TTS.
 
-### 2. PowerPoint Add-in (PPAM)
-For better stability with video export and audio insertion, install the helper add-in.
+### 2. Development Mode (Local TTS)
+Useful for offline development or testing without incurring costs. Uses Mycroft Mimic 3.
 
-1.  Open PowerPoint.
-2.  Go to **Tools** > **PowerPoint Add-ins...**
-3.  Click the **+** button.
-4.  Navigate to `electron/scripts/helper.ppam` in this project and select it.
-5.  Check any security prompts to allow the macros to run.
-
-## Running the TTS Server (Dev / Local)
-
-This application requires a local Mycroft Mimic 3 TTS server running in a Docker container.
-
-Run the following command in a terminal to start the TTS server:
+**Start the Local TTS Server:**
+Run the following command in a terminal:
 
 ```bash
 docker run -it --user root -p 59125:59125 mycroftai/mimic3
 ```
 
-> **Note**: This maps port `59125` locally, which the application relies on to generate audio.
+> **Note**: This maps port `59125` locally. If you have not uploaded a GCP key, the app will attempt to fallback to this local server.
+
+### 3. PowerPoint Add-in (PPAM)
+For better stability with video export and audio insertion, install the helper add-in.
+
+1.  Open PowerPoint.
+2.  Go to **Tools** > **PowerPoint Add-ins...**
+3.  Click the **+** button.
+4.  Navigate to `electron/scripts/ppt-tools.ppam` in this project (or the release folder) and select it.
+5.  Check any security prompts to allow the macros to run.
 
 ## Running the Application
 
