@@ -45,7 +45,7 @@ For better stability with video export and audio insertion, install the helper a
 4.  Navigate to `electron/scripts/helper.ppam` in this project and select it.
 5.  Check any security prompts to allow the macros to run.
 
-## Running the TTS Server
+## Running the TTS Server (Dev / Local)
 
 This application requires a local Mycroft Mimic 3 TTS server running in a Docker container.
 
