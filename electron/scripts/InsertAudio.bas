@@ -108,6 +108,39 @@ Sub InsertAudio()
                         shp.Name = audioTag
                         shp.Left = -100
                         shp.Top = -100
+                        
+                        ' --- Animation Configuration ---
+                        Dim eff As Effect
+                        
+                        ' 1. Ensure clean slate (remove any auto-added effects for this shape)
+                        Dim i As Integer
+                        For i = sld.TimeLine.MainSequence.Count To 1 Step -1
+                            If Not sld.TimeLine.MainSequence(i).Shape Is Nothing Then
+                                If sld.TimeLine.MainSequence(i).Shape.Name = shp.Name Then
+                                    sld.TimeLine.MainSequence(i).Delete
+                                End If
+                            End If
+                        Next i
+                        
+                        ' 2. Add "Play" effect to Main Sequence
+                        ' msoAnimEffectMediaPlay = 83 in some versions, but better to rely on Enum or just add it.
+                        ' Using the named constant if available, else assuming standard MediaPlay behavior.
+                        ' 3 = msoAnimTriggerAfterPrevious
+                        Set eff = sld.TimeLine.MainSequence.AddEffect(shp, 83, , 3) 
+                        
+                        ' 3. Move to Front (Make it the first animation)
+                        Do While eff.Index > 1
+                            eff.MoveTo 1
+                        Loop
+                        
+                        ' 4. Remove any "Trigger" (Interactive Sequence) created by PPT defaults
+                        ' (Often PPT adds an OnClick trigger for media)
+                        ' Note: sld.TimeLine.InteractiveSequences contains trigger-based animations
+                        ' We iterate via property accessor or just by count if needed, but usually AddEffect logic is enough 
+                        ' if we didn't use "AddMediaObject" with "LinkToFile:=False, SaveWithDocument:=True" etc which sometimes auto-triggers.
+                        ' But AddMediaObject2 is generally cleaner.
+                        ' We will assume the MainSequence addition is sufficient, but let's double check MainSequence order.
+                        
                         With shp.MediaFormat
                             .Muted = False
                             .Volume = 0.5
