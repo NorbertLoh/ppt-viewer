@@ -8,4 +8,7 @@ window.electronAPI = {
     getPathForFile: (file) => file.path,
     selectFile: () => electron_1.ipcRenderer.invoke('select-file'),
     saveAllNotes: (filePath, slides) => electron_1.ipcRenderer.invoke('save-all-notes', filePath, slides),
+    getVoices: () => electron_1.ipcRenderer.invoke('get-voices'),
+    getGcpKeyPath: () => electron_1.ipcRenderer.invoke('get-gcp-key-path'),
+    setGcpKey: () => electron_1.ipcRenderer.invoke('set-gcp-key'),
 };

@@ -10,11 +10,14 @@ import {
     IconClock,
     IconPlus,
     IconArrowBackUp,
-    IconArrowForwardUp
+    IconArrowForwardUp,
+    IconSettings
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
 import { generateAudio, getAudioBuffer } from '../utils/tts';
-const { ipcRenderer } = window.require('electron');
+import { VoiceSelector, type Voice } from './VoiceSelector';
+import { SettingsModal } from './SettingsModal';
+const { ipcRenderer } = (window as any).require('electron');
 
 interface ViewerPageProps {
     slides: Slide[];
@@ -28,8 +31,10 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
     // History State
     const [history, setHistory] = useState<Slide[][]>([initialSlides]);
     const [historyIndex, setHistoryIndex] = useState(0);
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+    const [selectedVoice, setSelectedVoice] = useState<Voice | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [customBreak, setCustomBreak] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,7 +65,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
 
         try {
             // Generate URL (cached if possible)
-            const url = await generateAudio(activeSlide.notes);
+            const url = await generateAudio(activeSlide.notes, selectedVoice || undefined);
 
             if (url !== audioUrl) {
                 setAudioUrl(url);
@@ -76,8 +81,9 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                     setIsPlaying(true);
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to play audio", error);
+            alert("Failed to play audio: " + error.message);
         }
     };
 
@@ -319,7 +325,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 for (const slide of slides) {
                     if (slide.notes && slide.notes.trim().length > 0) {
                         setGenStatus(`Generating audio for slide ${slide.index}...`);
-                        const buffer = await getAudioBuffer(slide.notes);
+                        const buffer = await getAudioBuffer(slide.notes, selectedVoice || undefined);
                         slidesAudioString.push({
                             index: slide.index,
                             audioData: new Uint8Array(buffer)
@@ -360,8 +366,14 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header / Toolbar */}
             <Group justify="space-between" p="xs" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)', background: 'var(--mantine-color-dark-7)' }}>
-                <Button variant="subtle" size="xs" onClick={onBack}>&larr; Back</Button>
-                <Title order={5}>Viewer</Title>
+                <Group>
+                    <Button variant="subtle" size="xs" onClick={onBack}>&larr; Back</Button>
+                    <Title order={5}>Viewer</Title>
+                    <ActionIcon variant="subtle" size="sm" onClick={() => setSettingsOpen(true)}>
+                        <IconSettings size={16} />
+                    </ActionIcon>
+                </Group>
+                <VoiceSelector value={selectedVoice} onChange={setSelectedVoice} />
                 <Group>
                     {isGenerating && <Text size="xs" c="dimmed">{genStatus}</Text>}
                     <Button
@@ -594,6 +606,8 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                     </Box>
                 </div>
             </div>
+            {/* Overlays */}
+            <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>
     );
 }

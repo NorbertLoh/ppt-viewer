@@ -5,6 +5,35 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
+const text_to_speech_1 = require("@google-cloud/text-to-speech");
+const dotenv_1 = __importDefault(require("dotenv"));
+// Load .env
+dotenv_1.default.config();
+const electron_store_1 = __importDefault(require("electron-store"));
+const store = new electron_store_1.default();
+// --- Helper to get GCP Key Path ---
+function getGcpKeyPath() {
+    // Priority: 1. ENV var (dev/runtime override), 2. Stored path
+    return process.env.GOOGLE_APPLICATION_CREDENTIALS || store.get('gcpKeyPath');
+}
+function getTtsProvider() {
+    // Priority: 1. ENV var, 2. Stored Key -> implies GCP, 3. Default to GCP (so we prompt for key)
+    if (process.env.TTS_PROVIDER)
+        return process.env.TTS_PROVIDER;
+    if (getGcpKeyPath())
+        return 'gcp';
+    return 'gcp'; // Default to GCP instead of local, so we hit the "missing key" check
+}
+function resolveScriptPath(scriptName) {
+    if (electron_1.app.isPackaged) {
+        // In production, scripts are unpacked to Resources/electron/scripts
+        return path_1.default.join(process.resourcesPath, 'electron', 'scripts', scriptName);
+    }
+    else {
+        // In dev, scripts are in electron/scripts relative to main.ts
+        return path_1.default.join(__dirname, '../electron/scripts', scriptName);
+    }
+}
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
     electron_1.app.quit();
@@ -26,6 +55,13 @@ const createWindow = () => {
     }
     else {
         mainWindow.loadFile(path_1.default.join(__dirname, '../dist/index.html'));
+        // Optional: Open DevTools on specific key combination for debugging production builds
+        mainWindow.webContents.on('before-input-event', (event, input) => {
+            if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+                mainWindow.webContents.toggleDevTools();
+                event.preventDefault();
+            }
+        });
     }
 };
 electron_1.app.whenReady().then(() => {
@@ -72,7 +108,7 @@ electron_1.ipcMain.handle('convert-pptx', async (event, filePath) => {
     console.log('Output Dir:', outputDir);
     try {
         if (os === 'win32') {
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/convert-win.ps1');
+            const scriptPath = resolveScriptPath('convert-win.ps1');
             console.log('Script Path:', scriptPath);
             // Spawn PowerShell
             const { spawn } = require('child_process');
@@ -107,7 +143,8 @@ electron_1.ipcMain.handle('convert-pptx', async (event, filePath) => {
                             // Fix image paths to be absolute or protocol based
                             const slidesWithPaths = slides.map((s) => ({
                                 ...s,
-                                src: `file://${path_1.default.join(outputDir, s.image)}`
+                                src: `file://${path_1.default.join(outputDir, s.image)}`,
+                                notes: s.notes ? s.notes.replace(/\\n/g, '\n') : ''
                             }));
                             resolve({ success: true, slides: slidesWithPaths });
                         }
@@ -122,7 +159,7 @@ electron_1.ipcMain.handle('convert-pptx', async (event, filePath) => {
             });
         }
         else if (os === 'darwin') {
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/convert-mac.applescript');
+            const scriptPath = resolveScriptPath('convert-mac.applescript');
             console.log('Script Path (Mac):', scriptPath);
             const { spawn } = require('child_process');
             const child = spawn('osascript', [
@@ -165,11 +202,16 @@ electron_1.ipcMain.handle('convert-pptx', async (event, filePath) => {
                         try {
                             const fs = require('fs');
                             const data = fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, '');
-                            console.log('Manifest Content:', data); // LOGGING ADDED
+                            console.log('Manifest Content Sample (First 100 chars):', data.substring(0, 100));
+                            // Debug encoding
+                            const rawBuffer = fs.readFileSync(manifestPath);
+                            console.log('Manifest Start Hex:', rawBuffer.subarray(0, 20).toString('hex'));
                             const slides = JSON.parse(data);
                             const slidesWithPaths = slides.map((s) => ({
                                 ...s,
-                                src: s.image ? `file://${path_1.default.join(outputDir, s.image)}` : null
+                                src: s.image ? `file://${path_1.default.join(outputDir, s.image)}` : null,
+                                // Fix escaped newlines from AppleScript/Perl pipeline
+                                notes: s.notes ? s.notes.replace(/\\n/g, '\n') : ''
                             })).filter((s) => s.src !== null); // Filter out bad slides
                             resolve({ success: true, slides: slidesWithPaths });
                         }
@@ -223,7 +265,7 @@ electron_1.ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
             const paramsContent = `${absolutePath}|${dataPath}`;
             fs.writeFileSync(paramsPath, paramsContent, 'utf8');
             // 3. Trigger Macro
-            const scriptPath = path_1.default.join(__dirname, '../electron/scripts/trigger-macro.applescript');
+            const scriptPath = resolveScriptPath('trigger-macro.applescript');
             // Args: macroName, pptPath
             const { spawn } = require('child_process');
             const child = spawn('osascript', [
@@ -317,7 +359,7 @@ electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudi
                 batchParams += `${slide.index}|${audioFilePath}|${filePath}\n`;
             }
             if (process.platform === 'darwin') {
-                const scriptPath = path.join(__dirname, '../electron/scripts/trigger-macro.applescript');
+                const scriptPath = resolveScriptPath('trigger-macro.applescript');
                 // 2. Write ALL parameters to file ONCE
                 // audio_params.txt content: "SlideIndex|AudioPath|PresentationPath" (Multiple lines)
                 const paramsPath = path.join(officeContainer, 'audio_params.txt');
@@ -352,7 +394,7 @@ electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudi
             }
         }
         if (process.platform === 'darwin') {
-            const exportScriptPath = path.join(__dirname, '../electron/scripts/export-to-video.applescript');
+            const exportScriptPath = resolveScriptPath('export-to-video.applescript');
             // Args: outputPath, presentationPath (filePath)
             const child = spawn('osascript', [
                 exportScriptPath,
@@ -385,5 +427,137 @@ electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudi
     catch (e) {
         console.error('Generation failed:', e);
         return { success: false, error: e.message };
+    }
+});
+// --- TTS Handler ---
+// --- Settings Handler ---
+electron_1.ipcMain.handle('get-gcp-key-path', async () => {
+    return store.get('gcpKeyPath');
+});
+electron_1.ipcMain.handle('set-gcp-key', async () => {
+    const { canceled, filePaths } = await electron_1.dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+    });
+    if (canceled || filePaths.length === 0) {
+        return { success: false };
+    }
+    const keyPath = filePaths[0];
+    // Basic validation
+    try {
+        const fs = require('fs');
+        const content = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+        if (!content.type || content.type !== 'service_account') {
+            return { success: false, error: 'Invalid Service Account Key JSON' };
+        }
+    }
+    catch (err) {
+        return { success: false, error: 'Invalid JSON file' };
+    }
+    store.set('gcpKeyPath', keyPath);
+    return { success: true, path: keyPath };
+});
+// --- TTS Handler ---
+electron_1.ipcMain.handle('get-voices', async () => {
+    const provider = getTtsProvider();
+    console.log(`Get Voices Request. Provider: ${provider}`);
+    const keyPath = getGcpKeyPath();
+    try {
+        if (provider === 'gcp') {
+            if (!keyPath) {
+                console.warn("TTS_PROVIDER is 'gcp' but GOOGLE_APPLICATION_CREDENTIALS is missing.");
+                return [];
+            }
+            // Explicitly pass credentials if using stored path
+            const options = {};
+            if (keyPath) {
+                options.keyFilename = keyPath;
+            }
+            const client = new text_to_speech_1.TextToSpeechClient(options);
+            const [result] = await client.listVoices({ languageCode: 'en-US' });
+            // Filter for Chirp 3 HD voices as requested
+            const voices = result.voices || [];
+            return voices.filter(v => v.name && v.name.includes('Chirp3-HD'));
+        }
+        else {
+            // Local fallback
+            return [
+                { name: 'en_UK/apope_low', ssmlGender: 'MALE', languageCodes: ['en-GB'] },
+                { name: 'default', ssmlGender: 'NEUTRAL', languageCodes: ['en-US'] }
+            ];
+        }
+    }
+    catch (error) {
+        console.error("Failed to list voices:", error);
+        return [];
+    }
+});
+electron_1.ipcMain.handle('generate-speech', async (event, { text, voiceOption }) => {
+    // Determine provider: 'gcp' or 'local' (default)
+    const provider = getTtsProvider();
+    console.log(`TTS Request: "${text.substring(0, 20)}..." using provider: ${provider}, voice: ${voiceOption ? voiceOption.name : 'default'}`);
+    try {
+        if (provider === 'gcp') {
+            // --- Google Cloud TTS ---
+            const keyPath = getGcpKeyPath();
+            if (!keyPath) {
+                throw new Error("TTS_PROVIDER is 'gcp' but GOOGLE_APPLICATION_CREDENTIALS is not set");
+            }
+            const options = {};
+            if (keyPath) {
+                options.keyFilename = keyPath;
+            }
+            const client = new text_to_speech_1.TextToSpeechClient(options);
+            // Detect SSML (basic check for tags)
+            const isSsml = /<[^>]+>/.test(text);
+            let input;
+            if (isSsml) {
+                // Ensure it's wrapped in <speak>
+                let ssmlText = text;
+                if (!ssmlText.trim().startsWith('<speak>')) {
+                    ssmlText = `<speak>${ssmlText}</speak>`;
+                }
+                input = { ssml: ssmlText };
+                console.log('Sending SSML request to GCP:', ssmlText);
+            }
+            else {
+                input = { text: text };
+            }
+            const request = {
+                input: input,
+                // Use selected voice or default
+                voice: voiceOption ? { languageCode: voiceOption.languageCodes[0], name: voiceOption.name } : { languageCode: 'en-US', name: 'en-US-Journey-F' },
+                audioConfig: { audioEncoding: 'MP3' },
+            };
+            const [response] = await client.synthesizeSpeech(request);
+            return response.audioContent; // This is Uint8Array or Buffer
+        }
+        else {
+            // --- Local TTS (Dev) ---
+            // Default to local server
+            const localUrl = process.env.LOCAL_TTS_URL || 'http://localhost:59125/api/tts';
+            // Use selected voice name if available, else env default, else hardcoded default
+            const voice = (voiceOption && voiceOption.name) || process.env.LOCAL_TTS_VOICE || 'en_UK/apope_low';
+            // Construct URL with params
+            const url = new URL(localUrl);
+            url.searchParams.append('voice', voice);
+            url.searchParams.append('ssml', 'true');
+            // Clean text (basic)
+            const sanitizedText = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+            const resp = await fetch(url.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: sanitizedText
+            });
+            if (!resp.ok) {
+                throw new Error(`Local TTS failed: ${resp.status} ${resp.statusText}`);
+            }
+            const arrayBuffer = await resp.arrayBuffer();
+            return new Uint8Array(arrayBuffer);
+        }
+    }
+    catch (error) {
+        console.error("TTS generation failed:", error);
+        throw new Error(error.message || "Unknown TTS error");
     }
 });

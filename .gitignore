@@ -24,4 +24,10 @@ dist-ssr
 *.sw?
 .env
 
+# Build Output
+release/
+dist-electron/
+
+# Temporary
 slides_debug/
+gcp-key.json

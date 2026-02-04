@@ -23,6 +23,28 @@ An Electron-based application that views PowerPoint presentations, extracts spea
     npm install
     ```
 
+## Configuration
+
+### 1. Google Cloud Text-to-Speech
+To use the high-quality Chirp 3 HD voices, you need a Google Cloud Service Account key.
+
+1.  Place your Service Account JSON key file in the root directory of the project.
+2.  Rename the file to `gcp-key.json`.
+3.  Ensure your `.env` file matches the following:
+    ```env
+    TTS_PROVIDER=gcp
+    GOOGLE_APPLICATION_CREDENTIALS=./gcp-key.json
+    ```
+
+### 2. PowerPoint Add-in (PPAM)
+For better stability with video export and audio insertion, install the helper add-in.
+
+1.  Open PowerPoint.
+2.  Go to **Tools** > **PowerPoint Add-ins...**
+3.  Click the **+** button.
+4.  Navigate to `electron/scripts/helper.ppam` in this project and select it.
+5.  Check any security prompts to allow the macros to run.
+
 ## Running the TTS Server
 
 This application requires a local Mycroft Mimic 3 TTS server running in a Docker container.

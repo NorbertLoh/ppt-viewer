@@ -19,6 +19,9 @@ declare global {
             getPathForFile: (file: File) => string;
             selectFile: () => Promise<string | null>;
             saveAllNotes: (filePath: string, slides: Slide[]) => Promise<{ success: boolean; error?: string }>;
+            getVoices: () => Promise<any[]>;
+            getGcpKeyPath: () => Promise<string | undefined>;
+            setGcpKey: () => Promise<{ success: boolean; path?: string; error?: string }>;
         };
     }
 }

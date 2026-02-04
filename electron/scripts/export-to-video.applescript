@@ -50,30 +50,32 @@ on run {outputPath, pptPath}
         return "Error: Timeout waiting for video file to be created."
     end if
     
-    -- 2. Wait for stability
+    -- 2. Wait for file to be released (lsof check)
+    -- If lsof finds the file open, it returns 0 (success). If not open, it returns 1 (error).
+    set isBusy to true
     set waitCycles to 0
-    repeat while stableCount < 5 and waitCycles < maxStableWait
-        delay 1
-        set waitCycles to waitCycles + 1
+    
+    repeat while isBusy and waitCycles < maxStableWait
+        delay 2
+        set waitCycles to waitCycles + 2
         
         try
-            -- Get file size in bytes using stat (MacOS bsd stat)
-            set curSize to (do shell script "stat -f%z " & quoted form of outputPath) as integer
+            -- Check if anyone (specifically PPT) has the file open
+            do shell script "lsof " & quoted form of outputPath
+            -- If we are here, grep found it (exit code 0), so it IS busy
+            set isBusy to true
         on error
-            set curSize to -1
+            -- lsof failed (exit code 1), meaning file is NOT open by anyone
+            set isBusy to false
         end try
         
-        if curSize > 0 then
-            if curSize = lastSize then
-                set stableCount to stableCount + 1
-            else
-                set stableCount to 0
-                set lastSize to curSize
-            end if
-        else
-            set stableCount to 0
-        end if
+        -- Logging for debug (optional, but good if we could see it)
+        -- do shell script "echo 'Busy: " & isBusy & "' >&2"
     end repeat
+    
+    if isBusy then
+         return "Error: Timeout. PowerPoint is still holding the file open."
+    end if
     
     -- 4. CLOSE
     tell application "Microsoft PowerPoint"

@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Center, Text } from '@mantine/core';
+import { Center, Text, ActionIcon } from '@mantine/core';
+import { IconSettings } from '@tabler/icons-react';
 import { LandingPage } from './components/LandingPage';
 import { ViewerPage } from './components/ViewerPage';
+import { SettingsModal } from './components/SettingsModal';
 import type { Slide } from './electron'; // Import type
 
 function App() {
@@ -9,6 +11,7 @@ function App() {
   const [slides, setSlides] = useState<Slide[] | null>(null);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleManualSelect = async () => {
     if (window.electronAPI) {
@@ -110,12 +113,23 @@ function App() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {!slides ? (
         <>
+          <ActionIcon
+            variant="subtle"
+            size="lg"
+            pos="absolute"
+            top={10}
+            left={10}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <IconSettings size={24} />
+          </ActionIcon>
           <LandingPage onDrop={handleFileDrop} onSelectFile={handleManualSelect} />
           {loading && <Text ta="center" mt="sm">Analysing file...</Text>}
         </>
       ) : (
         <ViewerPage slides={slides} onSave={handleSaveAll} onBack={() => setSlides(null)} filePath={currentFilePath || ''} />
       )}
+      <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

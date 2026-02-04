@@ -7,4 +7,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
     getPathForFile: (file: File) => (file as any).path,
     selectFile: () => ipcRenderer.invoke('select-file'),
     saveAllNotes: (filePath: string, slides: any[]) => ipcRenderer.invoke('save-all-notes', filePath, slides),
+    getVoices: () => ipcRenderer.invoke('get-voices'),
+    getGcpKeyPath: () => ipcRenderer.invoke('get-gcp-key-path'),
+    setGcpKey: () => ipcRenderer.invoke('set-gcp-key'),
 };

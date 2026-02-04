@@ -239,6 +239,37 @@ on cleanNotes(str)
     set text item delimiters to "\\n"
     set str to itemsList as text
     
+    -- Replace smart quotes and dashes to prevent encoding issues
+    set text item delimiters to "’"
+    set itemsList to text items of str
+    set text item delimiters to "'"
+    set str to itemsList as text
+    
+    set text item delimiters to "‘"
+    set itemsList to text items of str
+    set text item delimiters to "'"
+    set str to itemsList as text
+    
+    set text item delimiters to "“"
+    set itemsList to text items of str
+    set text item delimiters to "\""
+    set str to itemsList as text
+    
+    set text item delimiters to "”"
+    set itemsList to text items of str
+    set text item delimiters to "\""
+    set str to itemsList as text
+    
+    set text item delimiters to "–" -- En dash
+    set itemsList to text items of str
+    set text item delimiters to "-"
+    set str to itemsList as text
+    
+    set text item delimiters to "—" -- Em dash
+    set itemsList to text items of str
+    set text item delimiters to "--"
+    set str to itemsList as text
+
     return str
 end cleanNotes
 
