@@ -298,6 +298,14 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         try {
             // 1. Ask for Save Path FIRST
             if (ipcRenderer) {
+                // AUTO-SAVE: Save notes before proceeding
+                setGenStatus('Saving notes...');
+                const saveResult = await ipcRenderer.invoke('save-all-notes', filePath, slides);
+                if (!saveResult.success) {
+                    alert('Auto-save failed: ' + saveResult.error);
+                    return;
+                }
+
                 const savePath = await ipcRenderer.invoke('get-video-save-path');
                 if (!savePath) {
                     return; // User cancelled

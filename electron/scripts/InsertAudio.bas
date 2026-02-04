@@ -29,71 +29,100 @@ Sub InsertAudio()
         Exit Sub
     End If
     
+    ' Batch Process Mode
+    Dim lineData As String
+    Dim targetPath As String
+    Dim hasPres As Boolean
+    
+    hasPres = False
+    
     fileNum = FreeFile
     Open paramsPath For Input As fileNum
-    Line Input #fileNum, fileContent
+    
+    Do While Not EOF(fileNum)
+        Line Input #fileNum, fileContent
+        
+        If Len(Trim(fileContent)) > 0 Then
+            params = Split(fileContent, "|")
+            
+            If UBound(params) >= 2 Then
+                slideIndex = CInt(params(0))
+                audioPath = params(1)
+                
+                ' Only find presentation once (on first valid line)
+                If Not hasPres Then
+                    targetPath = params(2)
+                    
+                    ' Find the correct presentation
+                    Dim p As Presentation
+                    Set pres = Nothing
+                    For Each p In Application.Presentations
+                        If p.FullName = targetPath Or p.Name = Dir(targetPath) Then
+                            Set pres = p
+                            Exit For
+                        End If
+                    Next p
+                    
+                    ' Fallback to name search
+                    If pres Is Nothing Then
+                        Dim targetName As String
+                        targetName = Mid(targetPath, InStrRev(targetPath, "/") + 1)
+                        For Each p In Application.Presentations
+                            If p.Name = targetName Then
+                                Set pres = p
+                                Exit For
+                            End If
+                        Next p
+                    End If
+                    
+                    If pres Is Nothing Then
+                        MsgBox "Error: Could not find open presentation: " & targetPath
+                        Close fileNum
+                        Exit Sub
+                    End If
+                    
+                    hasPres = True
+                End If
+                
+                ' Process Audio Insertion for this line
+                If slideIndex > 0 And slideIndex <= pres.Slides.Count Then
+                    Set sld = pres.Slides(slideIndex)
+                    
+                    ' Tag for unique identification
+                    Dim audioTag As String
+                    audioTag = "ppt_audio_slide_" & slideIndex
+                    
+                    ' Find and delete existing audio with this tag (Find & Replace)
+                    Dim s As Shape
+                    For Each s In sld.Shapes
+                        If s.Name = audioTag Then
+                            s.Delete
+                            Exit For
+                        End If
+                    Next s
+                    
+                    ' Insert the audio object
+                    Set shp = sld.Shapes.AddMediaObject2(audioPath, 0, -1, 10, 10)
+                    
+                    If Not shp Is Nothing Then
+                        shp.Name = audioTag
+                        shp.Left = -100
+                        shp.Top = -100
+                        With shp.MediaFormat
+                            .Muted = False
+                            .Volume = 0.5
+                        End With
+                    End If
+                End If
+            End If
+        End If
+    Loop
+    
     Close fileNum
     
-    params = Split(fileContent, "|")
-    If UBound(params) < 2 Then Exit Sub
-    
-    slideIndex = CInt(params(0))
-    audioPath = params(1)
-    Dim targetPath As String
-    targetPath = params(2)
-    
-    ' Find the correct presentation
-    Dim p As Presentation
-    Set pres = Nothing
-    For Each p In Application.Presentations
-        If p.FullName = targetPath Or p.Name = Dir(targetPath) Then
-            Set pres = p
-            Exit For
-        End If
-    Next p
-    
-    ' Fallback to name search
-    If pres Is Nothing Then
-        Dim targetName As String
-        targetName = Mid(targetPath, InStrRev(targetPath, "/") + 1)
-        For Each p In Application.Presentations
-            If p.Name = targetName Then
-                Set pres = p
-                Exit For
-            End If
-        Next p
-    End If
-    
-    If pres Is Nothing Then
-        MsgBox "Error: Could not find open presentation: " & targetPath
-        Exit Sub
-    End If
-    
-    If slideIndex > pres.Slides.Count Or slideIndex < 1 Then Exit Sub
-    
-    Set sld = pres.Slides(slideIndex)
-    
-    ' Insert the audio object
-    ' LinkToFile: False (0), SaveWithDocument: True (-1)
-    Set shp = sld.Shapes.AddMediaObject2(audioPath, 0, -1, 10, 10)
-    
-    If Not shp Is Nothing Then
-        shp.Name = "GeneratedAudio_" & Format(Now, "hhmmss")
-        
-        ' 1. Position it off-screen
-        shp.Left = -100
-        shp.Top = -100
-        
-        ' 2. Configure Media Settings (No Animation Trigger)
-        With shp.MediaFormat
-            ' This ensures the icon isn't visible if it were on-screen
-            ' and removes the need for interactive triggers
-            .Muted = False
-            .Volume = 0.5
-        End With
-        
-    ' 3. Ensure no Play effects are added to the timeline
-    ' We simply skip the sld.TimeLine.MainSequence.AddEffect block entirely.
+    ' Save ONCE after batch processing
+    If hasPres Then
+        pres.Save
     End If
     
 End Sub

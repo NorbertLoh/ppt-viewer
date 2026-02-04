@@ -336,28 +336,34 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOut
     }
 
     try {
-        for (const slide of slidesAudio) {
-            console.log(`Processing slide ${slide.index}`);
-            const buffer = Buffer.from(slide.audioData);
-            const audioFileName = `audio_${slide.index}.mp3`;
-            const audioFilePath = path.join(audioSessionDir, audioFileName);
+        if (slidesAudio.length > 0) {
+            let batchParams = "";
 
-            fs.writeFileSync(audioFilePath, buffer);
-            console.log(`Saved audio to ${audioFilePath}`);
+            // 1. Save all audio files and prepare batch params
+            for (const slide of slidesAudio) {
+                console.log(`Processing slide ${slide.index}`);
+                const buffer = Buffer.from(slide.audioData);
+                const audioFileName = `audio_${slide.index}.mp3`;
+                const audioFilePath = path.join(audioSessionDir, audioFileName);
 
-            console.log(`Saved audio to ${audioFilePath}`);
+                fs.writeFileSync(audioFilePath, buffer);
+                console.log(`Saved audio to ${audioFilePath}`);
+
+                // Append to batch params: Index|AudioPath|PresentationPath
+                batchParams += `${slide.index}|${audioFilePath}|${filePath}\n`;
+            }
 
             if (process.platform === 'darwin') {
                 const scriptPath = path.join(__dirname, '../electron/scripts/trigger-macro.applescript');
 
-                // 1. Write parameters to file (Replacing partial logic in trigger script)
-                // audio_params.txt content: "SlideIndex|AudioPath|PresentationPath"
-                const paramsContent = `${slide.index}|${audioFilePath}|${filePath}`;
+                // 2. Write ALL parameters to file ONCE
+                // audio_params.txt content: "SlideIndex|AudioPath|PresentationPath" (Multiple lines)
                 const paramsPath = path.join(officeContainer, 'audio_params.txt');
-                fs.writeFileSync(paramsPath, paramsContent, 'utf8');
+                fs.writeFileSync(paramsPath, batchParams, 'utf8');
 
-                // 2. Call the GENERIC macro runner
+                // 3. Call the GENERIC macro runner ONCE
                 // Args: macroName, pptPath
+                console.log("Triggering batch audio insertion macro...");
                 const child = spawn('osascript', [
                     scriptPath,
                     "InsertAudio",
@@ -371,10 +377,10 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOut
                     child.stderr.on('data', (d: any) => stderr += d);
                     child.on('close', (code: number) => {
                         if (code === 0 && !stdout.includes("Error")) {
-                            console.log(`Macro triggered for slide ${slide.index}`);
+                            console.log(`Batch audio macro completed successfully.`);
                             resolve();
                         } else {
-                            console.error(`Failed for slide ${slide.index}: ${stderr} ${stdout}`);
+                            console.error(`Failed to run batch audio macro: ${stderr} ${stdout}`);
                             reject(new Error(stdout || stderr));
                         }
                     });
@@ -383,6 +389,7 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOut
                 // Windows fallback (if needed later)
             }
         }
+
 
 
 
