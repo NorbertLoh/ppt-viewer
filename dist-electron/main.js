@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
+const child_process_1 = require("child_process");
 const text_to_speech_1 = require("@google-cloud/text-to-speech");
 const dotenv_1 = __importDefault(require("dotenv"));
 // Load .env
@@ -499,6 +500,43 @@ electron_1.ipcMain.handle('set-gcp-key', async () => {
     }
     store.set('gcpKeyPath', keyPath);
     return { success: true, path: keyPath };
+});
+// --- Play Slide Handler ---
+// --- Play Slide Handler ---
+electron_1.ipcMain.handle('play-slide', async (event, slideIndex) => {
+    if (process.platform === 'darwin') {
+        const scriptPath = resolveScriptPath('play-slide.applescript');
+        return new Promise((resolve) => {
+            const child = (0, child_process_1.spawn)('osascript', [scriptPath, slideIndex.toString()]);
+            let output = '';
+            let errorOutput = '';
+            child.stdout.on('data', (data) => {
+                output += data.toString();
+            });
+            child.stderr.on('data', (data) => {
+                errorOutput += data.toString();
+            });
+            child.on('close', (code) => {
+                console.log("Play Slide Output:", output);
+                if (code === 0) {
+                    if (output.includes("Error")) {
+                        console.error("Play Slide Script Error:", output);
+                        resolve({ success: false, error: output.trim() });
+                    }
+                    else {
+                        resolve({ success: true });
+                    }
+                }
+                else {
+                    console.error("Play Slide failed:", errorOutput);
+                    resolve({ success: false, error: errorOutput || 'Unknown error playing slide' });
+                }
+            });
+        });
+    }
+    else {
+        return { success: false, error: 'Play Slide is only supported on macOS for now.' };
+    }
 });
 // --- TTS Handler ---
 electron_1.ipcMain.handle('get-voices', async () => {

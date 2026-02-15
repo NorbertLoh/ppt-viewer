@@ -11,7 +11,8 @@ import {
     IconPlus,
     IconArrowBackUp,
     IconArrowForwardUp,
-    IconSettings
+    IconSettings,
+    IconDeviceTv
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
 import { generateAudio, getAudioBuffer } from '../utils/tts';
@@ -458,6 +459,25 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         }
     };
 
+    const handlePlaySlide = async () => {
+        if (ipcRenderer) {
+            try {
+                // Determine 1-based index for PowerPoint
+                // We assume activeSlide.index is 1-based compatible or we use index + 1
+                // Let's rely on activeSlide.index if available (from backend conversion), else fallback
+                const indexToPlay = activeSlide.index || (activeSlideIndex + 1);
+
+                const result = await ipcRenderer.invoke('play-slide', indexToPlay);
+                if (!result.success) {
+                    alert('Failed to play slide: ' + result.error);
+                }
+            } catch (e: any) {
+                console.error("Play slide error:", e);
+                alert("Play slide error: " + e.message);
+            }
+        }
+    };
+
     return (
         <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header / Toolbar */}
@@ -482,6 +502,15 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                         disabled={isGenerating || isSaving}
                     >
                         {isGenerating ? 'Generating...' : 'Generate Video'}
+                    </Button>
+                    <Button
+                        variant="default"
+                        size="xs"
+                        leftSection={<IconDeviceTv size={14} />}
+                        onClick={handlePlaySlide}
+                        disabled={isGenerating || isSaving}
+                    >
+                        Play
                     </Button>
                     <Button
                         variant="default"

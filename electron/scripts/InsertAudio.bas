@@ -266,3 +266,72 @@ Sub UpdateNotes()
     ' pres.Close
     
 End Sub
+
+Sub PlaySlide()
+    Dim pres As Presentation
+    Dim slideIndex As Integer
+    Dim paramsPath As String
+    Dim fileNum As Integer
+    Dim fileContent As String
+    
+    ' 1. Read Slide Index from File
+    paramsPath = "/Users/" & Environ("USER") & "/Library/Group Containers/UBF8T346G9.Office/play_slide.txt"
+    
+    If Dir(paramsPath) = "" Then
+        MsgBox "Error: Could not find play_slide.txt"
+        Exit Sub
+    End If
+    
+    fileNum = FreeFile
+    Open paramsPath For Input As fileNum
+    Line Input #fileNum, fileContent
+    Close fileNum
+    
+    slideIndex = CInt(Trim(fileContent))
+    
+    ' 2. Get Active Presentation
+    If Application.Presentations.Count = 0 Then
+        MsgBox "No presentation open."
+        Exit Sub
+    End If
+    
+    Set pres = Application.ActivePresentation
+    
+    ' 3. Validate Index
+    If slideIndex < 1 Or slideIndex > pres.Slides.Count Then
+        MsgBox "Invalid slide index: " & slideIndex
+        Exit Sub
+    End If
+    
+    ' 4. Start Slide Show
+    With pres.SlideShowSettings
+        .RangeType = ppShowAll
+        .AdvanceMode = ppSlideShowUseSlideTimings
+        .Run
+    End With
+    
+    ' 5. Navigate to Slide
+    ' Wait for window to exist (simple loop)
+    Dim i As Integer
+    Dim sw As SlideShowWindow
+    Set sw = Nothing
+    
+    For i = 1 To 10
+        If pres.SlideShowWindow Is Nothing Then
+            DoEvents
+        Else
+            Set sw = pres.SlideShowWindow
+            Exit For
+        End If
+    Next i
+    
+    If Not sw Is Nothing Then
+        sw.View.GotoSlide slideIndex
+    Else
+        ' Try getting it from Application.SlideShowWindows
+        If Application.SlideShowWindows.Count > 0 Then
+            Application.SlideShowWindows(1).View.GotoSlide slideIndex
+        End If
+    End If
+
+End Sub

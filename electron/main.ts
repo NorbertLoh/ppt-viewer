@@ -554,6 +554,46 @@ ipcMain.handle('set-gcp-key', async () => {
     return { success: true, path: keyPath };
 });
 
+// --- Play Slide Handler ---
+// --- Play Slide Handler ---
+ipcMain.handle('play-slide', async (event, slideIndex) => {
+    if (process.platform === 'darwin') {
+        const scriptPath = resolveScriptPath('play-slide.applescript');
+        return new Promise((resolve) => {
+            const child = spawn('osascript', [scriptPath, slideIndex.toString()]);
+
+            let output = '';
+            let errorOutput = '';
+
+            child.stdout.on('data', (data) => {
+                output += data.toString();
+            });
+
+            child.stderr.on('data', (data) => {
+                errorOutput += data.toString();
+            });
+
+            child.on('close', (code) => {
+                console.log("Play Slide Output:", output);
+
+                if (code === 0) {
+                    if (output.includes("Error")) {
+                        console.error("Play Slide Script Error:", output);
+                        resolve({ success: false, error: output.trim() });
+                    } else {
+                        resolve({ success: true });
+                    }
+                } else {
+                    console.error("Play Slide failed:", errorOutput);
+                    resolve({ success: false, error: errorOutput || 'Unknown error playing slide' });
+                }
+            });
+        });
+    } else {
+        return { success: false, error: 'Play Slide is only supported on macOS for now.' };
+    }
+});
+
 // --- TTS Handler ---
 ipcMain.handle('get-voices', async () => {
     const provider = getTtsProvider();
