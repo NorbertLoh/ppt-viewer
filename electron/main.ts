@@ -160,9 +160,18 @@ ipcMain.handle('convert-pptx', async (event, filePath) => {
                             // Fix image paths to be absolute or protocol based
                             const slidesWithPaths = slides.map((s: any) => ({
                                 ...s,
-                                src: `file://${path.join(outputDir, s.image)}`,
+                                ...s,
+                                src: `file://${path.join(outputDir, s.image)}?t=${Date.now()}`,
                                 notes: s.notes ? s.notes.replace(/\\n/g, '\n') : ''
                             }));
+
+                            // Focus App Back
+                            const window = BrowserWindow.fromWebContents(event.sender);
+                            if (window) {
+                                window.show();
+                                window.focus();
+                            }
+
                             resolve({ success: true, slides: slidesWithPaths });
                         } catch (err) {
                             reject(err);
@@ -580,6 +589,7 @@ ipcMain.handle('play-slide', async (event, slideIndex) => {
                     if (output.includes("Error")) {
                         console.error("Play Slide Script Error:", output);
                         resolve({ success: false, error: output.trim() });
+
                     } else {
                         resolve({ success: true });
                     }
@@ -591,6 +601,117 @@ ipcMain.handle('play-slide', async (event, slideIndex) => {
         });
     } else {
         return { success: false, error: 'Play Slide is only supported on macOS for now.' };
+    }
+});
+
+// --- Sync Slide Handler ---
+ipcMain.handle('sync-slide', async (event, { filePath, slideIndex }) => {
+    if (process.platform !== 'darwin') {
+        return { success: false, error: 'Sync Slide is only supported on macOS.' };
+    }
+
+    try {
+        const path = require('path');
+        const fs = require('fs');
+        const { spawn } = require('child_process');
+
+        // Resolve absolute path (matches convert-pptx)
+        const absolutePath = path.resolve(filePath);
+
+        // Use app temp directory (matches convert-pptx)
+        const tempDir = app.getPath('temp');
+        const outputDir = path.join(tempDir, 'ppt-viewer', path.basename(absolutePath, path.extname(absolutePath)));
+
+        if (!fs.existsSync(outputDir)) {
+            return { success: false, error: 'Conversion directory not found. Please sync all first.' };
+        }
+
+        // 2. Run AppleScript
+        const scriptPath = resolveScriptPath('sync-slide.applescript');
+
+        // slideIndex is 1-based from frontend usually, let's verify
+        // The script expects 1-based index (PowerPoint standard)
+
+        const child = spawn('osascript', [
+            scriptPath,
+            absolutePath,
+            slideIndex.toString(),
+            outputDir
+        ]);
+
+        return new Promise((resolve) => {
+            let stdout = '';
+            let stderr = '';
+
+            child.stdout.on('data', (data: any) => stdout += data.toString());
+            child.stderr.on('data', (data: any) => stderr += data.toString());
+
+            child.on('close', (code: number) => {
+                if (code === 0 && !stdout.includes("Error")) {
+                    try {
+                        // Parse Output: "slides/SlideX.png|||Notes Content"
+                        const parts = stdout.trim().split('|||');
+                        if (parts.length < 2) throw new Error("Invalid script output: " + stdout);
+
+                        const imageRelPath = parts[0];
+                        const newNotes = parts[1] || ''; // Notes might be empty
+
+                        // 3. Update Manifest
+                        const manifestPath = path.join(outputDir, 'manifest.json');
+                        const manifestData = fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, '');
+                        const slides = JSON.parse(manifestData);
+
+                        // Find slide by index (1-based)
+                        const slide = slides.find((s: any) => s.index === slideIndex);
+
+                        if (slide) {
+                            // Update existing
+                            slide.image = imageRelPath;
+                            slide.notes = newNotes;
+                        } else {
+                            // New slide? If explicit sync-slide is called on a new slide index, we might need to append?
+                            // Usually this is called for an *existing* known slide.
+                            // If user added a slide and tries to sync it, we might not know its index yet if we haven't refreshed full list.
+                            // So granular sync is best for *updating* existing.
+                            // However, let's allow adding if it returns a higher index than currently known?
+                            // But usually we sync by index. If index > slides.length, it's new.
+                            slides.push({ index: slideIndex, image: imageRelPath, notes: newNotes });
+                            // Sort by index just in case
+                            slides.sort((a: any, b: any) => a.index - b.index);
+                        }
+
+                        // Write back Manifest
+                        fs.writeFileSync(manifestPath, JSON.stringify(slides, null, 2), 'utf8');
+
+                        // Return Updated Slides (formatted for frontend)
+                        const slidesWithPaths = slides.map((s: any) => ({
+                            ...s,
+                            src: s.image ? `file://${path.join(outputDir, s.image)}?t=${Date.now()}` : null,
+                            notes: s.notes ? s.notes.replace(/\\n/g, '\n') : ''
+                        })).filter((s: any) => s.src !== null);
+
+                        // Focus App Back
+                        const window = BrowserWindow.fromWebContents(event.sender);
+                        if (window) {
+                            window.show();
+                            window.focus();
+                        }
+
+                        resolve({ success: true, slides: slidesWithPaths });
+
+                    } catch (e: any) {
+                        console.error("Sync parsing error:", e);
+                        resolve({ success: false, error: e.message });
+                    }
+                } else {
+                    console.error("Sync Slide failed:", stderr || stdout);
+                    resolve({ success: false, error: stderr || stdout || 'Unknown error syncing slide' });
+                }
+            });
+        });
+
+    } catch (e: any) {
+        return { success: false, error: e.message };
     }
 });
 

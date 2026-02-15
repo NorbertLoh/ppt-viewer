@@ -12,7 +12,8 @@ import {
     IconArrowBackUp,
     IconArrowForwardUp,
     IconSettings,
-    IconDeviceTv
+    IconDeviceTv,
+    IconRefresh
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
 import { generateAudio, getAudioBuffer } from '../utils/tts';
@@ -46,6 +47,9 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
     const [duration, setDuration] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const isSeekingRef = useRef(false);
+
+    // Sync State
+    const [isSyncing, setIsSyncing] = useState(false);
 
     const activeSlide = slides[activeSlideIndex] || { src: '', notes: '' };
 
@@ -478,6 +482,66 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         }
     };
 
+    const handleSyncAll = async () => {
+        if (isSyncing || isSaving || isGenerating) return;
+        setIsSyncing(true);
+
+        try {
+            if (ipcRenderer) {
+                const result = await ipcRenderer.invoke('convert-pptx', filePath);
+
+                if (result.success && result.slides) {
+                    setSlides(result.slides);
+                    setHistory([result.slides]);
+                    setHistoryIndex(0);
+
+                    if (activeSlideIndex >= result.slides.length) {
+                        setActiveSlideIndex(Math.max(0, result.slides.length - 1));
+                    }
+                } else {
+                    alert('Sync failed: ' + (result.error || 'Unknown error'));
+                }
+            }
+        } catch (e: any) {
+            console.error("Sync error:", e);
+            alert("Sync error: " + e.message);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleSyncSlide = async () => {
+        if (isSyncing || isSaving || isGenerating) return;
+        setIsSyncing(true);
+
+        try {
+            if (ipcRenderer) {
+                // Determine 1-based index
+                const indexToSync = activeSlide.index || (activeSlideIndex + 1);
+
+                // Call new handler
+                const result = await ipcRenderer.invoke('sync-slide', {
+                    filePath,
+                    slideIndex: indexToSync
+                });
+
+                if (result.success && result.slides) {
+                    setSlides(result.slides);
+                    // Update history to match
+                    setHistory([result.slides]);
+                    setHistoryIndex(0);
+                } else {
+                    alert('Sync Slide failed: ' + (result.error || 'Unknown error'));
+                }
+            }
+        } catch (e: any) {
+            console.error("Sync slide error:", e);
+            alert("Sync slide error: " + e.message);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     return (
         <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header / Toolbar */}
@@ -493,13 +557,45 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 <Group>
                     {isGenerating && <Text size="xs" c="dimmed">{genStatus}</Text>}
                     {isSaving && <Text size="xs" c="dimmed">{saveStatus}</Text>}
+                    <Button.Group>
+                        <Button
+                            variant="default"
+                            size="xs"
+                            leftSection={<IconRefresh size={14} className={isSyncing ? "mantine-rotate" : ""} />}
+                            onClick={handleSyncSlide}
+                            loading={isSyncing}
+                            disabled={isGenerating || isSaving || isSyncing}
+                        >
+                            Sync Slide
+                        </Button>
+                        <Menu position="bottom-end" withinPortal>
+                            <Menu.Target>
+                                <Button
+                                    variant="default"
+                                    size="xs"
+                                    px={4}
+                                    disabled={isGenerating || isSaving || isSyncing}
+                                >
+                                    <IconChevronDown size={14} />
+                                </Button>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                                <Menu.Item
+                                    leftSection={<IconRefresh size={14} />}
+                                    onClick={handleSyncAll}
+                                >
+                                    Sync All Slides
+                                </Menu.Item>
+                            </Menu.Dropdown>
+                        </Menu>
+                    </Button.Group>
                     <Button
                         size="xs"
                         variant="light"
                         color="blue"
                         onClick={handleGenerateVideo}
                         loading={isGenerating}
-                        disabled={isGenerating || isSaving}
+                        disabled={isGenerating || isSaving || isSyncing}
                     >
                         {isGenerating ? 'Generating...' : 'Generate Video'}
                     </Button>
@@ -508,7 +604,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                         size="xs"
                         leftSection={<IconDeviceTv size={14} />}
                         onClick={handlePlaySlide}
-                        disabled={isGenerating || isSaving}
+                        disabled={isGenerating || isSaving || isSyncing}
                     >
                         Play
                     </Button>
@@ -517,7 +613,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                         size="xs"
                         onClick={handleSaveCurrentSlide}
                         loading={isSaving}
-                        disabled={isGenerating || isSaving}
+                        disabled={isGenerating || isSaving || isSyncing}
                     >
                         Save Slide
                     </Button>
@@ -527,7 +623,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                         size="xs"
                         onClick={handleSaveWithAudio}
                         loading={isSaving}
-                        disabled={isGenerating || isSaving}
+                        disabled={isGenerating || isSaving || isSyncing}
                     >
                         Save All Changes
                     </Button>
@@ -547,9 +643,25 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                                         marginBottom: '1rem',
                                         cursor: 'pointer',
                                         border: activeSlideIndex === index ? '2px solid var(--mantine-color-blue-6)' : '2px solid transparent',
-                                        borderRadius: '4px'
+                                        borderRadius: '4px',
+                                        position: 'relative'
                                     }}
                                 >
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: 4,
+                                        left: 4,
+                                        zIndex: 10,
+                                        background: 'rgba(0,0,0,0.6)',
+                                        color: 'white',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        fontSize: '10px',
+                                        fontWeight: 'bold',
+                                        pointerEvents: 'none'
+                                    }}>
+                                        {index + 1}
+                                    </div>
                                     <Image src={slide.src} radius="sm" />
                                 </Box>
                             ))}

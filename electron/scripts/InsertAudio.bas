@@ -335,3 +335,57 @@ Sub PlaySlide()
     End If
 
 End Sub
+
+Sub ExportSlide()
+    Dim pres As Presentation
+    Dim slideIndex As Integer
+    Dim paramsPath As String
+    Dim fileNum As Integer
+    Dim fileContent As String
+    Dim params() As String
+    Dim targetPath As String
+    Dim exportPath As String
+    
+    ' 1. Read Parameters
+    paramsPath = "/Users/" & Environ("USER") & "/Library/Group Containers/UBF8T346G9.Office/sync_slide.txt"
+    
+    If Dir(paramsPath) = "" Then
+        MsgBox "Error: Could not find sync_slide.txt"
+        Exit Sub
+    End If
+    
+    fileNum = FreeFile
+    Open paramsPath For Input As fileNum
+    Line Input #fileNum, fileContent
+    Close fileNum
+    
+    ' Format: SlideIndex|Values... (We might just need index if we assume active pres, but let's be safe)
+    ' Actually, the AppleScript will likely just pass the Index and OutputPath.
+    ' Let's expect: SlideIndex|OutputPath
+    
+    params = Split(fileContent, "|")
+    If UBound(params) < 1 Then Exit Sub
+    
+    slideIndex = CInt(params(0))
+    exportPath = params(1)
+    
+    ' 2. Get Active Presentation
+    If Application.Presentations.Count = 0 Then
+        MsgBox "No presentation open."
+        Exit Sub
+    End If
+    
+    Set pres = Application.ActivePresentation
+    
+    ' 3. Validate
+    If slideIndex < 1 Or slideIndex > pres.Slides.Count Then
+        MsgBox "Invalid slide index: " & slideIndex
+        Exit Sub
+    End If
+    
+    ' 4. Export
+    ' Export method calls: Expression.Export(FileName, FilterName, ScaleWidth, ScaleHeight)
+    ' FilterName: "PNG"
+    pres.Slides(slideIndex).Export exportPath, "PNG"
+    
+End Sub
