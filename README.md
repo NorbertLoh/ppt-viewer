@@ -66,3 +66,18 @@ npm run dev
 1.  Select a PowerPoint file (`.pptx`).
 2.  View slides and notes.
 3.  Click **"Generate Video"** to create an MP4 with AI narration.
+
+## Troubleshooting
+
+### "App cannot be opened because Apple cannot check it for malicious software"
+Since this application is not signed with an Apple Developer ID, you may see this warning on macOS.
+
+**To fix this:**
+1.  **Right-click** (or Control-click) the `PPT Viewer.app`.
+2.  Select **Open** from the context menu.
+3.  Click **Open** in the dialog box that appears.
+
+Alternatively, you can remove the quarantine attribute via terminal:
+```bash
+xattr -cr "/path/to/PPT Viewer.app"
+```

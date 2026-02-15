@@ -49,22 +49,10 @@ function App() {
   };
 
   const handleSaveAll = async (updatedSlides: Slide[]) => {
-    if (!currentFilePath || !window.electronAPI) return;
-
-    setLoading(true);
-    try {
-      const result = await window.electronAPI.saveAllNotes(currentFilePath, updatedSlides);
-      if (!result.success) {
-        alert('Failed to save: ' + result.error);
-      } else {
-        alert('Notes saved successfully!');
-        setSlides(updatedSlides); // Update generic state
-      }
-    } catch (e: any) {
-      alert('Error saving notes: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
+    // ViewerPage handles the actual saving to file (including audio) via IPC.
+    // We just need to update our local state here.
+    setSlides(updatedSlides);
+    // Optional: Show a subtle success message if needed, but ViewerPage already alerted.
   };
 
   const handleFileDrop = async (files: File[]) => {

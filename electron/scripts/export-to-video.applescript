@@ -2,24 +2,38 @@ on run {outputPath, pptPath}
     tell application "Microsoft PowerPoint"
         -- activate removed
         
-        -- Ensure the correct presentation is active
-        if pptPath is not "" then
-            open (POSIX file pptPath)
+        -- CHECK IF ALREADY OPEN
+        set pres to missing value
+        try
+            repeat with p in presentations
+                if full name of p contains pptPath then
+                    set pres to p
+                    exit repeat
+                end if
+            end repeat
+        end try
+        
+        if pres is missing value then
+             if pptPath is not "" then
+                open (POSIX file pptPath)
+                set pres to active presentation
+             else
+                -- If no path provided, assume active active
+                if exists active presentation then
+                    set pres to active presentation
+                end if
+             end if
         end if
         
-        if not (exists active presentation) then
+        if pres is missing value then
             return "Error: No active presentation to export."
         end if
         
         try
-            -- Converting POSIX path to Mac path usually required for 'save as'
-            -- But "save active presentation in (POSIX file ...)" works in newer versions.
-            -- Using "save as movie" creates an MP4 or MOV depending on version/settings.
+            -- Export using the specific presentation object
+            save pres in (POSIX file outputPath) as save as movie
             
-            save active presentation in (POSIX file outputPath) as save as movie
-            
-            -- 3. WAIT FOR COMPLETION
-            -- Loop checking file size until it stops changing
+            -- 3. WAIT FOR COMPLETION happens below
         on error errMsg
             return "Error initiating export: " & errMsg
         end try
@@ -51,7 +65,6 @@ on run {outputPath, pptPath}
     end if
     
     -- 2. Wait for file to be released (lsof check)
-    -- If lsof finds the file open, it returns 0 (success). If not open, it returns 1 (error).
     set isBusy to true
     set waitCycles to 0
     
@@ -68,23 +81,14 @@ on run {outputPath, pptPath}
             -- lsof failed (exit code 1), meaning file is NOT open by anyone
             set isBusy to false
         end try
-        
-        -- Logging for debug (optional, but good if we could see it)
-        -- do shell script "echo 'Busy: " & isBusy & "' >&2"
     end repeat
     
     if isBusy then
          return "Error: Timeout. PowerPoint is still holding the file open."
     end if
     
-    -- 4. CLOSE
-    tell application "Microsoft PowerPoint"
-        try
-             close active presentation saving no
-            
-            return "Success"
-        on error errMsg
-            return "Error exporting video: " & errMsg
-        end try
-    end tell
+    -- 4. DO NOT CLOSE
+    -- The user wants the presentation to stay open.
+    
+    return "Success"
 end run

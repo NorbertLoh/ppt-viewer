@@ -263,6 +263,6 @@ Sub UpdateNotes()
     
     ' 4. Save
     pres.Save
-    pres.Close
+    ' pres.Close
     
 End Sub

@@ -26,16 +26,35 @@ on run argv
 	tell application "Microsoft PowerPoint"
 		launch -- Start without activating/stealing focus
 		
-		-- Open the presentation
-		open (POSIX file inputPath)
-        
-        -- Try to hide the window
+        -- CHECK IF ALREADY OPEN
+        set pres to missing value
         try
-            set window state of active window to minimized
+            repeat with p in presentations
+                -- Check full name (path) or name (filename)
+                -- full name is safer but might vary in format (HFS vs POSIX)
+                -- Let's try to match loosely or convert inputPath to HFS
+                if full name of p contains inputPath then
+                    set pres to p
+                    exit repeat
+                end if
+            end repeat
         end try
-		
-		-- Get active presentation reliably
-		set pres to active presentation
+        
+        if pres is missing value then
+             -- Open the presentation
+             open (POSIX file inputPath)
+             
+             -- Try to hide the window
+            try
+                set window state of active window to minimized
+            end try
+             
+             set pres to active presentation
+        else
+            -- It was already open, just use it
+             do shell script "echo 'Presentation already open, using existing session.' >&2"
+        end if
+
 		
 		-- Get slide count
 		set slideCount to count of slides of pres
@@ -62,13 +81,13 @@ on run argv
         
         -- Export as PNG
 		try
-			run script "tell application \"Microsoft PowerPoint\" to save active presentation in \"" & slidesHFS & "\" as save as PNG"
+			run script "tell application \"Microsoft PowerPoint\" to save presentation \"" & (name of pres) & "\" in \"" & slidesHFS & "\" as save as PNG"
 		on error errMsg
             do shell script "echo 'FAST EXPORT FAILED: " & errMsg & "' >&2"
             do shell script "echo 'Path used: " & slidesHFS & "' >&2"
 			-- Attempt 2: Raw format 18
             try
-				run script "tell application \"Microsoft PowerPoint\" to save active presentation in \"" & slidesHFS & "\" file format 18"
+				run script "tell application \"Microsoft PowerPoint\" to save presentation \"" & (name of pres) & "\" in \"" & slidesHFS & "\" file format 18"
 			on error errMsg2
                 do shell script "echo 'FAST EXPORT METHOD 2 FAILED: " & errMsg2 & "' >&2"
                 -- Both bulk methods failed
@@ -123,7 +142,7 @@ on run argv
 		
 		repeat with i from 1 to slideCount
             set slideNum to i
-			
+            
             -- Determine Image Filename
 			-- PowerPoint naming varies: Slide1.PNG, Slide1.png, Slide 1.PNG, etc.
             
@@ -169,8 +188,8 @@ on run argv
 			copy dataItem to end of slidesData
 		end repeat
 		
-		-- Close without saving
-		close pres saving no
+		-- DO NOT CLOSE - KEEP OPEN FOR USER
+		-- close pres saving no
 		
 	end tell
 	

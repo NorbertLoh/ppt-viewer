@@ -253,7 +253,90 @@ ipcMain.handle('convert-pptx', async (event, filePath) => {
     }
 });
 
-ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
+// --- Helper for Audio Insertion ---
+async function handleAudioInsertion(filePath: string, slidesAudio: any[]) {
+    console.log(`handleAudioInsertion for ${slidesAudio.length} slides`);
+    const path = require('path');
+    const fs = require('fs');
+    const { spawn } = require('child_process');
+    const app = require('electron').app;
+
+    if (!slidesAudio || slidesAudio.length === 0) return { success: true };
+
+    // Define the Office Group Container path for sandboxed access
+    const homeDir = app.getPath('home');
+    const officeContainer = path.join(homeDir, 'Library/Group Containers/UBF8T346G9.Office');
+    const audioSessionDir = path.join(officeContainer, 'TemporaryAudio', `session-${Date.now()}`);
+
+    // Ensure directory exists
+    try {
+        fs.mkdirSync(audioSessionDir, { recursive: true });
+    } catch (e) {
+        console.error("Failed to create Office container dir:", e);
+        return { success: false, error: "Could not create audio directory in Office container. Check permissions." };
+    }
+
+    try {
+        let batchParams = "";
+
+        // 1. Save all audio files and prepare batch params
+        for (const slide of slidesAudio) {
+            console.log(`Processing slide ${slide.index}`);
+            // audioData might be coming as an object from IPC, need to ensure it's a buffer
+            const buffer = Buffer.from(slide.audioData);
+            const audioFileName = `audio_${slide.index}.mp3`;
+            const audioFilePath = path.join(audioSessionDir, audioFileName);
+
+            fs.writeFileSync(audioFilePath, buffer);
+            console.log(`Saved audio to ${audioFilePath}`);
+
+            // Append to batch params: Index|AudioPath|PresentationPath
+            batchParams += `${slide.index}|${audioFilePath}|${filePath}\n`;
+        }
+
+        if (process.platform === 'darwin') {
+            const scriptPath = resolveScriptPath('trigger-macro.applescript');
+
+            // 2. Write ALL parameters to file ONCE
+            // audio_params.txt content: "SlideIndex|AudioPath|PresentationPath" (Multiple lines)
+            const paramsPath = path.join(officeContainer, 'audio_params.txt');
+            fs.writeFileSync(paramsPath, batchParams, 'utf8');
+
+            // 3. Call the GENERIC macro runner ONCE
+            // Args: macroName, pptPath
+            console.log("Triggering batch audio insertion macro...");
+            const child = spawn('osascript', [
+                scriptPath,
+                "InsertAudio",
+                filePath
+            ]);
+
+            await new Promise<void>((resolve, reject) => {
+                let stdout = '';
+                let stderr = '';
+                child.stdout.on('data', (d: any) => stdout += d);
+                child.stderr.on('data', (d: any) => stderr += d);
+                child.on('close', (code: number) => {
+                    if (code === 0 && !stdout.includes("Error")) {
+                        console.log(`Batch audio macro completed successfully.`);
+                        resolve();
+                    } else {
+                        console.error(`Failed to run batch audio macro: ${stderr} ${stdout}`);
+                        reject(new Error(stdout || stderr));
+                    }
+                });
+            });
+            return { success: true };
+        } else {
+            return { success: false, error: "Windows audio insertion not implemented" };
+        }
+    } catch (e: any) {
+        console.error('Audio insertion failed:', e);
+        return { success: false, error: e.message };
+    }
+}
+
+ipcMain.handle('save-all-notes', async (event, filePath, slides, slidesAudio) => {
     console.log('Save All Notes request for:', filePath);
 
     // Resolve absolute path
@@ -265,6 +348,16 @@ ipcMain.handle('save-all-notes', async (event, filePath, slides) => {
     }
 
     try {
+        // 1. Insert Audio (if provided)
+        if (slidesAudio && slidesAudio.length > 0) {
+            console.log('Inserting audio before saving notes...');
+            const audioResult = await handleAudioInsertion(absolutePath, slidesAudio);
+            if (!audioResult!.success) {
+                console.error("Audio insertion failed during save:", audioResult!.error);
+                return { success: false, error: "Audio insertion failed: " + audioResult!.error };
+            }
+        }
+
         if (process.platform === 'darwin') {
             const app = require('electron').app;
             const homeDir = app.getPath('home');
@@ -383,61 +476,11 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOut
 
     try {
         if (slidesAudio.length > 0) {
-            let batchParams = "";
-
-            // 1. Save all audio files and prepare batch params
-            for (const slide of slidesAudio) {
-                console.log(`Processing slide ${slide.index}`);
-                const buffer = Buffer.from(slide.audioData);
-                const audioFileName = `audio_${slide.index}.mp3`;
-                const audioFilePath = path.join(audioSessionDir, audioFileName);
-
-                fs.writeFileSync(audioFilePath, buffer);
-                console.log(`Saved audio to ${audioFilePath}`);
-
-                // Append to batch params: Index|AudioPath|PresentationPath
-                batchParams += `${slide.index}|${audioFilePath}|${filePath}\n`;
-            }
-
-            if (process.platform === 'darwin') {
-                const scriptPath = resolveScriptPath('trigger-macro.applescript');
-
-                // 2. Write ALL parameters to file ONCE
-                // audio_params.txt content: "SlideIndex|AudioPath|PresentationPath" (Multiple lines)
-                const paramsPath = path.join(officeContainer, 'audio_params.txt');
-                fs.writeFileSync(paramsPath, batchParams, 'utf8');
-
-                // 3. Call the GENERIC macro runner ONCE
-                // Args: macroName, pptPath
-                console.log("Triggering batch audio insertion macro...");
-                const child = spawn('osascript', [
-                    scriptPath,
-                    "InsertAudio",
-                    filePath
-                ]);
-
-                await new Promise<void>((resolve, reject) => {
-                    let stdout = '';
-                    let stderr = '';
-                    child.stdout.on('data', (d: any) => stdout += d);
-                    child.stderr.on('data', (d: any) => stderr += d);
-                    child.on('close', (code: number) => {
-                        if (code === 0 && !stdout.includes("Error")) {
-                            console.log(`Batch audio macro completed successfully.`);
-                            resolve();
-                        } else {
-                            console.error(`Failed to run batch audio macro: ${stderr} ${stdout}`);
-                            reject(new Error(stdout || stderr));
-                        }
-                    });
-                });
-            } else {
-                // Windows fallback (if needed later)
+            const audioResult = await handleAudioInsertion(filePath, slidesAudio);
+            if (!audioResult!.success) {
+                return { success: false, error: audioResult!.error };
             }
         }
-
-
-
 
         if (process.platform === 'darwin') {
             const exportScriptPath = resolveScriptPath('export-to-video.applescript');

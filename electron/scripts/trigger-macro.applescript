@@ -2,9 +2,24 @@ on run {macroName, pptPath}
     tell application "Microsoft PowerPoint"
         -- activate removed
         
-        -- open command usually activates, so we might want to check if open first?
-        -- But for now standard open is fine as long as we don't force activate.
-        open (POSIX file pptPath)
+        -- CHECK IF ALREADY OPEN
+        set pres to missing value
+        try
+            repeat with p in presentations
+                if full name of p contains pptPath then
+                    set pres to p
+                    exit repeat
+                end if
+            end repeat
+        end try
+        
+        if pres is missing value then
+             -- Open if not found
+             open (POSIX file pptPath)
+             set pres to active presentation
+        else
+             -- Use existing
+        end if
         
         try
             -- Run the specified macro
