@@ -92,12 +92,36 @@ Sub InsertAudio()
                     Dim audioTag As String
                     audioTag = "ppt_audio"
                     
-                    ' Find and delete existing audio from our tool
+                    ' Variables to preserve animation state
+                    Dim hadExistingAudio As Boolean
+                    Dim existingAnimIndex As Integer
+                    Dim existingTriggerType As Integer
+                    Dim existingDelay As Single
+                    
+                    hadExistingAudio = False
+                    existingAnimIndex = 1
+                    existingTriggerType = 3 ' 3 = msoAnimTriggerAfterPrevious
+                    existingDelay = 0
+                    
+                    ' Find and delete existing audio from our tool, but save its animation properties first
                     Dim s As Shape
                     Dim iShape As Integer
                     For iShape = sld.Shapes.Count To 1 Step -1
                         Set s = sld.Shapes(iShape)
                         If s.Name = audioTag Then
+                            ' Find its effect in MainSequence to copy properties
+                            Dim effIdx As Integer
+                            For effIdx = 1 To sld.TimeLine.MainSequence.Count
+                                If Not sld.TimeLine.MainSequence(effIdx).Shape Is Nothing Then
+                                    If sld.TimeLine.MainSequence(effIdx).Shape.Name = audioTag Then
+                                        hadExistingAudio = True
+                                        existingAnimIndex = effIdx
+                                        existingTriggerType = sld.TimeLine.MainSequence(effIdx).Timing.TriggerType
+                                        existingDelay = sld.TimeLine.MainSequence(effIdx).Timing.TriggerDelayTime
+                                        Exit For
+                                    End If
+                                End If
+                            Next effIdx
                             s.Delete
                         End If
                     Next iShape
@@ -123,24 +147,28 @@ Sub InsertAudio()
                             End If
                         Next i
                         
-                        ' 2. Add "Play" effect to Main Sequence
-                        ' msoAnimEffectMediaPlay = 83 in some versions, but better to rely on Enum or just add it.
-                        ' Using the named constant if available, else assuming standard MediaPlay behavior.
-                        ' 3 = msoAnimTriggerAfterPrevious
-                        Set eff = sld.TimeLine.MainSequence.AddEffect(shp, 83, , 3) 
+                        ' 2. Add "Play" effect to Main Sequence with preserved TriggerType
+                        ' msoAnimEffectMediaPlay = 83 in some versions
+                        Set eff = sld.TimeLine.MainSequence.AddEffect(shp, 83, , existingTriggerType) 
                         
-                        ' 3. Move to Front (Make it the first animation)
-                        Do While eff.Index > 1
-                            eff.MoveTo 1
-                        Loop
+                        ' 3. Apply preserved delay
+                        If hadExistingAudio Then
+                            eff.Timing.TriggerDelayTime = existingDelay
+                        End If
                         
-                        ' 4. Remove any "Trigger" (Interactive Sequence) created by PPT defaults
-                        ' (Often PPT adds an OnClick trigger for media)
-                        ' Note: sld.TimeLine.InteractiveSequences contains trigger-based animations
-                        ' We iterate via property accessor or just by count if needed, but usually AddEffect logic is enough 
-                        ' if we didn't use "AddMediaObject" with "LinkToFile:=False, SaveWithDocument:=True" etc which sometimes auto-triggers.
-                        ' But AddMediaObject2 is generally cleaner.
-                        ' We will assume the MainSequence addition is sufficient, but let's double check MainSequence order.
+                        ' 4. Move to appropriate position
+                        If hadExistingAudio Then
+                            ' Move to previous index if valid.
+                            ' eff.MoveTo accepts absolute index. 
+                            If existingAnimIndex <= sld.TimeLine.MainSequence.Count And existingAnimIndex > 0 Then
+                                eff.MoveTo existingAnimIndex
+                            End If
+                        Else
+                            ' Default: Move to Front (Make it the first animation)
+                            Do While eff.Index > 1
+                                eff.MoveTo 1
+                            Loop
+                        End If
                         
                         With shp.MediaFormat
                             .Muted = False
