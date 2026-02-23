@@ -77,65 +77,46 @@ on run argv
         
         do shell script "echo 'HFS Path: " & slidesHFS & "' >&2"
         
-        set exportSuccess to false
+        -- We are forcing Individual Slide Save to avoid Mac PPT bulk export naming bugs
+        -- where rearranged slides get the wrong names.
         
-        -- Export as PNG
-		try
-			run script "tell application \"Microsoft PowerPoint\" to save presentation \"" & (name of pres) & "\" in \"" & slidesHFS & "\" as save as PNG"
-		on error errMsg
-            do shell script "echo 'FAST EXPORT FAILED: " & errMsg & "' >&2"
-            do shell script "echo 'Path used: " & slidesHFS & "' >&2"
-			-- Attempt 2: Raw format 18
+        -- Get a unique timestamp to append to filenames so React knows they are new
+        set ts to (time of (current date)) as string
+        
+        repeat with i from 1 to slideCount
+            set slideName to "Slide_" & i & "_" & ts & ".png"
+            set slidePathPosix to slidesDir & "/" & slideName
+            set slidePathHFS to slidesHFS & slideName as text
+            
+            set slideSaved to false
+            
+            -- Method 3: Individual Slide Save
             try
-				run script "tell application \"Microsoft PowerPoint\" to save presentation \"" & (name of pres) & "\" in \"" & slidesHFS & "\" file format 18"
-			on error errMsg2
-                do shell script "echo 'FAST EXPORT METHOD 2 FAILED: " & errMsg2 & "' >&2"
-                -- Both bulk methods failed
-			end try
-		end try
-        
-        -- Small delay to let file system sync
-        delay 0.2
-        
-        set fileCount to (do shell script "ls " & quoted form of slidesDir & " | wc -l") as integer
-        
-        if fileCount is 0 then
-            -- Fallback Loop
-            repeat with i from 1 to slideCount
-                set slideName to "Slide" & i & ".png"
-                set slidePathPosix to slidesDir & "/" & slideName
-                set slidePathHFS to slidesHFS & slideName as text
-                
-                set slideSaved to false
-                
-                -- Method 3: Individual Slide Save
-                try
-                     tell slide i of pres
-                         save in slidePathHFS as save as PNG
-                     end tell
-                     set slideSaved to true
-                on error
-                     -- Method 4: Clipboard Fallback (Last Resort)
-                     try
-                        tell slide i of pres
-                            copy object
-                        end tell
-                        delay 0.2
-                        
-                        set pngData to the clipboard as «class PNGf»
-                        set fRef to open for access (POSIX file slidePathPosix) with write permission
-                        set eof fRef to 0
-                        write pngData to fRef
-                        close access fRef
-                        set slideSaved to true
-                     on error
-                        try
-                            close access (POSIX file slidePathPosix)
-                        end try
-                     end try
-                end try
-            end repeat
-        end if
+                 tell slide i of pres
+                     save in slidePathHFS as save as PNG
+                 end tell
+                 set slideSaved to true
+            on error
+                 -- Method 4: Clipboard Fallback (Last Resort)
+                 try
+                    tell slide i of pres
+                        copy object
+                    end tell
+                    delay 0.2
+                    
+                    set pngData to the clipboard as «class PNGf»
+                    set fRef to open for access (POSIX file slidePathPosix) with write permission
+                    set eof fRef to 0
+                    write pngData to fRef
+                    close access fRef
+                    set slideSaved to true
+                 on error
+                    try
+                        close access (POSIX file slidePathPosix)
+                    end try
+                 end try
+            end try
+        end repeat
 		
 		-- Collect Manifest Data
 		set slidesData to {}
@@ -144,22 +125,16 @@ on run argv
             set slideNum to i
             
             -- Determine Image Filename
-			-- PowerPoint naming varies: Slide1.PNG, Slide1.png, Slide 1.PNG, etc.
-            
-            set bestName to "Slide" & slideNum & ".PNG"
-            set lowerName to "Slide" & slideNum & ".png"
-            
+            set bestName to "Slide_" & slideNum & "_" & ts & ".png"
             set imageRelPath to ""
             
             -- Check for existence using shell
             if (do shell script "[ -f " & quoted form of (slidesDir & "/" & bestName) & " ] && echo 'yes' || echo 'no'") is "yes" then
                 set imageRelPath to "slides/" & bestName
-            else if (do shell script "[ -f " & quoted form of (slidesDir & "/" & lowerName) & " ] && echo 'yes' || echo 'no'") is "yes" then
-                set imageRelPath to "slides/" & lowerName
             else
                 -- Try fuzzy match
                  try
-                    set foundFile to do shell script "ls " & quoted form of slidesDir & " | grep -i '^Slide" & slideNum & "\\.'"
+                    set foundFile to do shell script "ls " & quoted form of slidesDir & " | grep -i '^Slide_" & slideNum & "_.*\\.png$'"
                     -- Take first line if multiple
                     set foundFile to paragraph 1 of foundFile
                     set imageRelPath to "slides/" & foundFile

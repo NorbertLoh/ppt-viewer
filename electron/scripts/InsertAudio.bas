@@ -90,16 +90,17 @@ Sub InsertAudio()
                     
                     ' Tag for unique identification
                     Dim audioTag As String
-                    audioTag = "ppt_audio_slide_" & slideIndex
+                    audioTag = "ppt_audio"
                     
-                    ' Find and delete existing audio with this tag (Find & Replace)
+                    ' Find and delete existing audio from our tool
                     Dim s As Shape
-                    For Each s In sld.Shapes
+                    Dim iShape As Integer
+                    For iShape = sld.Shapes.Count To 1 Step -1
+                        Set s = sld.Shapes(iShape)
                         If s.Name = audioTag Then
                             s.Delete
-                            Exit For
                         End If
-                    Next s
+                    Next iShape
                     
                     ' Insert the audio object
                     Set shp = sld.Shapes.AddMediaObject2(audioPath, 0, -1, 10, 10)
@@ -388,4 +389,94 @@ Sub ExportSlide()
     ' FilterName: "PNG"
     pres.Slides(slideIndex).Export exportPath, "PNG"
     
+End Sub
+
+Sub RemoveAudio()
+    Dim pres As Presentation
+    Dim p As Presentation
+    Dim paramsPath As String
+    Dim fileNum As Integer
+    Dim fileContent As String
+    Dim params() As String
+    Dim targetPath As String
+    Dim scope As String
+    Dim slideIndex As Integer
+    Dim sld As Slide
+    Dim s As Shape
+    Dim iShape As Integer
+    Dim i As Integer
+    
+    ' 1. Read Parameters
+    paramsPath = "/Users/" & Environ("USER") & "/Library/Group Containers/UBF8T346G9.Office/remove_audio_params.txt"
+    
+    If Dir(paramsPath) = "" Then
+        MsgBox "Error: Could not find remove_audio_params.txt"
+        Exit Sub
+    End If
+    
+    fileNum = FreeFile
+    Open paramsPath For Input As fileNum
+    Line Input #fileNum, fileContent
+    Close fileNum
+    
+    ' Format: TargetPath|Scope|SlideIndex
+    params = Split(fileContent, "|")
+    If UBound(params) < 1 Then Exit Sub
+    
+    targetPath = params(0)
+    scope = params(1)
+    If UBound(params) >= 2 Then
+        slideIndex = CInt(params(2))
+    End If
+    
+    ' 2. Find Presentation
+    Set pres = Nothing
+    For Each p In Application.Presentations
+        If p.FullName = targetPath Or p.Name = Dir(targetPath) Then
+            Set pres = p
+            Exit For
+        End If
+    Next p
+    
+    If pres Is Nothing Then
+        Dim targetName As String
+        targetName = Mid(targetPath, InStrRev(targetPath, "/") + 1)
+        For Each p In Application.Presentations
+            If p.Name = targetName Then
+                Set pres = p
+                Exit For
+            End If
+        Next p
+    End If
+    
+    If pres Is Nothing Then
+        MsgBox "Error: Presentation not found: " & targetPath
+        Exit Sub
+    End If
+    
+    ' 3. Remove Audio
+    If scope = "all" Then
+        For i = 1 To pres.Slides.Count
+            Set sld = pres.Slides(i)
+            For iShape = sld.Shapes.Count To 1 Step -1
+                Set s = sld.Shapes(iShape)
+                If s.Name = "ppt_audio" Then
+                    s.Delete
+                End If
+            Next iShape
+        Next i
+    ElseIf scope = "slide" Then
+        If slideIndex > 0 And slideIndex <= pres.Slides.Count Then
+            Set sld = pres.Slides(slideIndex)
+            For iShape = sld.Shapes.Count To 1 Step -1
+                Set s = sld.Shapes(iShape)
+                If s.Name = "ppt_audio" Then
+                    s.Delete
+                End If
+            Next iShape
+        End If
+    End If
+    
+    ' 4. Save
+    pres.Save
 End Sub

@@ -237,7 +237,7 @@ ipcMain.handle('convert-pptx', async (event, filePath) => {
                             const slides = JSON.parse(data);
                             const slidesWithPaths = slides.map((s: any) => ({
                                 ...s,
-                                src: s.image ? `file://${path.join(outputDir, s.image)}` : null,
+                                src: s.image ? `file://${path.join(outputDir, s.image)}?t=${Date.now()}` : null,
                                 // Fix escaped newlines from AppleScript/Perl pipeline
                                 notes: s.notes ? s.notes.replace(/\\n/g, '\n') : ''
                             })).filter((s: any) => s.src !== null); // Filter out bad slides
@@ -554,6 +554,57 @@ ipcMain.handle('set-gcp-key', async () => {
 
     store.set('gcpKeyPath', keyPath);
     return { success: true, path: keyPath };
+});
+
+// --- Remove Audio Handler ---
+ipcMain.handle('remove-audio', async (event, { filePath, scope, slideIndex }) => {
+    console.log(`Remove Audio request for: ${filePath}, scope: ${scope}, slideIndex: ${slideIndex}`);
+
+    if (process.platform !== 'darwin') {
+        return { success: false, error: 'Remove Audio is only supported on macOS.' };
+    }
+
+    try {
+        const path = require('path');
+        const fs = require('fs');
+        const app = require('electron').app;
+        const { spawn } = require('child_process');
+
+        const absolutePath = path.resolve(filePath);
+        const homeDir = app.getPath('home');
+        const officeContainer = path.join(homeDir, 'Library/Group Containers/UBF8T346G9.Office');
+
+        const paramsPath = path.join(officeContainer, 'remove_audio_params.txt');
+        const paramsContent = `${absolutePath}|${scope}|${slideIndex || 0}`;
+        fs.writeFileSync(paramsPath, paramsContent, 'utf8');
+
+        const scriptPath = resolveScriptPath('trigger-macro.applescript');
+
+        const child = spawn('osascript', [
+            scriptPath,
+            "RemoveAudio",
+            absolutePath
+        ]);
+
+        return new Promise((resolve) => {
+            let stdout = '';
+            let stderr = '';
+            child.stdout.on('data', (d: any) => stdout += d.toString());
+            child.stderr.on('data', (d: any) => stderr += d.toString());
+            child.on('close', (code: number) => {
+                if (code === 0 && !stdout.includes("Error")) {
+                    console.log(`RemoveAudio macro triggered.`);
+                    resolve({ success: true });
+                } else {
+                    console.error(`Failed to trigger RemoveAudio: ${stderr} ${stdout}`);
+                    resolve({ success: false, error: stdout || stderr });
+                }
+            });
+        });
+
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
 });
 
 // --- Play Slide Handler ---

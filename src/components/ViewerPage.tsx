@@ -542,6 +542,35 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         }
     };
 
+    const [isRemoving, setIsRemoving] = useState(false);
+
+    const handleRemoveAudio = async (scope: 'slide' | 'all') => {
+        if (isGenerating || isSaving || isSyncing || isRemoving) return;
+        setIsRemoving(true);
+        try {
+            if (ipcRenderer) {
+                const indexToUse = activeSlide.index || (activeSlideIndex + 1);
+
+                const result = await ipcRenderer.invoke('remove-audio', {
+                    filePath,
+                    scope,
+                    slideIndex: indexToUse
+                });
+
+                if (result.success) {
+                    alert(`Successfully removed audio (${scope === 'all' ? 'all slides' : 'current slide'}).`);
+                } else {
+                    alert('Failed to remove audio: ' + (result.error || 'Unknown error'));
+                }
+            }
+        } catch (e: any) {
+            console.error("Remove audio error:", e);
+            alert("Remove audio error: " + e.message);
+        } finally {
+            setIsRemoving(false);
+        }
+    };
+
     return (
         <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header / Toolbar */}
@@ -585,6 +614,37 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                                     onClick={handleSyncAll}
                                 >
                                     Sync All Slides
+                                </Menu.Item>
+                            </Menu.Dropdown>
+                        </Menu>
+                    </Button.Group>
+
+                    <Button.Group>
+                        <Button
+                            variant="default"
+                            size="xs"
+                            onClick={() => handleRemoveAudio('slide')}
+                            loading={isRemoving}
+                            disabled={isGenerating || isSaving || isSyncing || isRemoving}
+                        >
+                            Remove Slide Audio
+                        </Button>
+                        <Menu position="bottom-end" withinPortal>
+                            <Menu.Target>
+                                <Button
+                                    variant="default"
+                                    size="xs"
+                                    px={4}
+                                    disabled={isGenerating || isSaving || isSyncing || isRemoving}
+                                >
+                                    <IconChevronDown size={14} />
+                                </Button>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                                <Menu.Item
+                                    onClick={() => handleRemoveAudio('all')}
+                                >
+                                    Remove All Audio
                                 </Menu.Item>
                             </Menu.Dropdown>
                         </Menu>
