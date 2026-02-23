@@ -798,6 +798,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                                     color={isPlaying ? "red" : "blue"}
                                     size="lg"
                                     radius="xl"
+                                    onMouseDown={(e) => e.preventDefault()}
                                     onClick={togglePlay}
                                     disabled={!activeSlide.notes}
                                 >
