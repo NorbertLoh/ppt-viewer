@@ -484,13 +484,6 @@ ipcMain.handle('generate-video', async (event, { filePath, slidesAudio, videoOut
     }
 
     try {
-        if (slidesAudio.length > 0) {
-            const audioResult = await handleAudioInsertion(filePath, slidesAudio);
-            if (!audioResult!.success) {
-                return { success: false, error: audioResult!.error };
-            }
-        }
-
         if (process.platform === 'darwin') {
             const exportScriptPath = resolveScriptPath('export-to-video.applescript');
 
