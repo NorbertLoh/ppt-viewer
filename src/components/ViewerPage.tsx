@@ -1,4 +1,4 @@
-import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput, Slider, Text } from '@mantine/core';
+import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput, Slider, Text, Loader } from '@mantine/core';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     IconPlayerPause,
@@ -48,6 +48,8 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const isSeekingRef = useRef(false);
 
+    const [isAudioGenerating, setIsAudioGenerating] = useState(false);
+
     // Sync State
     const [isSyncing, setIsSyncing] = useState(false);
 
@@ -79,27 +81,34 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         }
 
         try {
+            setIsAudioGenerating(true);
             // Generate URL (cached if possible)
             const url = await generateAudio(textToPlay, selectedVoice || undefined);
 
             if (url !== audioUrl) {
                 setAudioUrl(url);
-                // We'll rely on onCanPlay to start playing if the user clicked play effectively
-                // But simple ref logic:
-                // We need to wait for the new source to load.
-                // We can set a flag "shouldPlay" or just call play in a useEffect dependent on audioUrl?
-                // For simplicity, let's just trigger play in a timeout or create a refined flow.
-                // Actually, the simplest standard way:
+                // Wait a tick for React to update the <audio src> prop
+                setTimeout(() => {
+                    if (audioRef.current) {
+                        audioRef.current.currentTime = 0;
+                        audioRef.current.play()
+                            .then(() => setIsPlaying(true))
+                            .catch(e => console.error("Auto-play failed after generation", e));
+                    }
+                }, 100);
             } else {
                 if (audioRef.current) {
                     audioRef.current.currentTime = 0;
-                    audioRef.current.play();
-                    setIsPlaying(true);
+                    audioRef.current.play()
+                        .then(() => setIsPlaying(true))
+                        .catch(e => console.error("Auto-play failed for cached audio", e));
                 }
             }
         } catch (error: any) {
             console.error("Failed to play audio", error);
             alert("Failed to play audio: " + error.message);
+        } finally {
+            setIsAudioGenerating(false);
         }
     };
 
@@ -108,24 +117,10 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
             audioRef.current?.pause();
             setIsPlaying(false);
         } else {
-            // If we have a URL and it might be stale?
-            // The user requirement says "cache it as well so if the sentence is the same just play the audio dont generate new one".
-            // So we should ALWAYS check the generation to ensure we have the correct audio for the current text.
+            // ALWAYS check the generation to ensure we have the correct audio for the current text.
             await handlePlayAudio();
         }
     };
-
-    // Auto-play when audioUrl changes (and it was triggered by user action essentially)
-    // To distinguish between "slide change reset" (url->null) and "generated" (null->url or url->url2),
-    // we can check if url is truthy.
-    useEffect(() => {
-        if (audioUrl && audioRef.current && !isPlaying) {
-            // Only auto-play if we just generated it?
-            // If I implement handlePlayAudio to set url, then here we play.
-            audioRef.current.play().then(() => setIsPlaying(true)).catch(e => console.error("Auto-play failed", e));
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [audioUrl]);
 
     const onTimeUpdate = () => {
         if (audioRef.current && !isSeekingRef.current) {
@@ -805,24 +800,32 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                                     {isPlaying ? <IconPlayerPause size={20} /> : <IconPlayerPlay size={20} />}
                                 </ActionIcon>
 
-                                <Box style={{ flex: 1 }}>
-                                    <Slider
-                                        value={currentTime}
-                                        min={0}
-                                        max={duration || 100}
-                                        onChange={handleSeek}
-                                        onChangeEnd={handleSeekEnd}
-                                        label={formatTime}
-                                        disabled={!audioUrl}
-                                    />
-                                    <Group justify="space-between" mt={4}>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--mantine-color-dimmed)' }}>
-                                            {formatTime(currentTime)}
+                                <Box style={{ flex: 1, position: 'relative' }}>
+                                    {isAudioGenerating ? (
+                                        <div style={{ height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <Loader size="sm" variant="dots" color="blue" />
                                         </div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--mantine-color-dimmed)' }}>
-                                            {formatTime(duration)}
-                                        </div>
-                                    </Group>
+                                    ) : (
+                                        <>
+                                            <Slider
+                                                value={currentTime}
+                                                min={0}
+                                                max={duration || 100}
+                                                onChange={handleSeek}
+                                                onChangeEnd={handleSeekEnd}
+                                                label={formatTime}
+                                                disabled={!audioUrl}
+                                            />
+                                            <Group justify="space-between" mt={4}>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--mantine-color-dimmed)' }}>
+                                                    {formatTime(currentTime)}
+                                                </div>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--mantine-color-dimmed)' }}>
+                                                    {formatTime(duration)}
+                                                </div>
+                                            </Group>
+                                        </>
+                                    )}
                                 </Box>
                             </Group>
                         </Box>
