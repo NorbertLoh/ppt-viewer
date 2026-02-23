@@ -68,9 +68,19 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
     const handlePlayAudio = async () => {
         if (!activeSlide.notes) return;
 
+        let textToPlay = activeSlide.notes;
+
+        if (textareaRef.current) {
+            const start = textareaRef.current.selectionStart;
+            const end = textareaRef.current.selectionEnd;
+            if (start !== end) {
+                textToPlay = textToPlay.substring(start, end);
+            }
+        }
+
         try {
             // Generate URL (cached if possible)
-            const url = await generateAudio(activeSlide.notes, selectedVoice || undefined);
+            const url = await generateAudio(textToPlay, selectedVoice || undefined);
 
             if (url !== audioUrl) {
                 setAudioUrl(url);
@@ -82,6 +92,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 // Actually, the simplest standard way:
             } else {
                 if (audioRef.current) {
+                    audioRef.current.currentTime = 0;
                     audioRef.current.play();
                     setIsPlaying(true);
                 }
