@@ -31,3 +31,4 @@ dist-electron/
 # Temporary
 slides_debug/
 gcp-key.json
+release_package/

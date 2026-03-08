@@ -11,4 +11,7 @@ window.electronAPI = {
     getVoices: () => electron_1.ipcRenderer.invoke('get-voices'),
     getGcpKeyPath: () => electron_1.ipcRenderer.invoke('get-gcp-key-path'),
     setGcpKey: () => electron_1.ipcRenderer.invoke('set-gcp-key'),
+    getSpeakerMappings: () => electron_1.ipcRenderer.invoke('get-speaker-mappings'),
+    setSpeakerMappings: (mappings) => electron_1.ipcRenderer.invoke('set-speaker-mappings', mappings),
+    getTtsProvider: () => electron_1.ipcRenderer.invoke('get-tts-provider'),
 };

@@ -1,4 +1,4 @@
-import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput, Slider, Text, Loader } from '@mantine/core';
+import { Box, Group, Button, Image, ScrollArea, Textarea, Title, ActionIcon, Tooltip, Menu, rem, TextInput, Slider, Text, Loader, Select } from '@mantine/core';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
     IconPlayerPause,
@@ -17,7 +17,7 @@ import {
 } from '@tabler/icons-react';
 import type { Slide } from '../electron';
 import { generateAudio, getAudioBuffer } from '../utils/tts';
-import { VoiceSelector, type Voice } from './VoiceSelector';
+// Removed VoiceSelector import
 import { SettingsModal } from './SettingsModal';
 const { ipcRenderer } = (window as any).require('electron');
 
@@ -36,10 +36,21 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
     const [settingsOpen, setSettingsOpen] = useState(false);
 
     const [activeSlideIndex, setActiveSlideIndex] = useState(0);
-    const [selectedVoice, setSelectedVoice] = useState<Voice | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [customBreak, setCustomBreak] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [mappings, setMappings] = useState<Record<string, any>>({});
+
+    const loadSettings = async () => {
+        if (window.electronAPI.getSpeakerMappings) {
+            const m = await window.electronAPI.getSpeakerMappings();
+            setMappings(m || {});
+        }
+    };
+
+    useEffect(() => {
+        loadSettings();
+    }, []);
 
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -83,7 +94,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
         try {
             setIsAudioGenerating(true);
             // Generate URL (cached if possible)
-            const url = await generateAudio(textToPlay, selectedVoice || undefined);
+            const url = await generateAudio(textToPlay, undefined);
 
             if (url !== audioUrl) {
                 setAudioUrl(url);
@@ -336,7 +347,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 for (const slide of slides) {
                     if (slide.notes && slide.notes.trim().length > 0) {
                         setGenStatus(`Generating audio for slide ${slide.index}...`);
-                        const buffer = await getAudioBuffer(slide.notes, selectedVoice || undefined);
+                        const buffer = await getAudioBuffer(slide.notes, undefined);
                         slidesAudioString.push({
                             index: slide.index,
                             audioData: new Uint8Array(buffer)
@@ -389,7 +400,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 for (const slide of slides) {
                     if (slide.notes && slide.notes.trim().length > 0) {
                         setSaveStatus(`Generating audio for slide ${slide.index}...`);
-                        const buffer = await getAudioBuffer(slide.notes, selectedVoice || undefined);
+                        const buffer = await getAudioBuffer(slide.notes, undefined);
                         slidesAudioString.push({
                             index: slide.index,
                             audioData: new Uint8Array(buffer)
@@ -436,7 +447,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 const slidesAudioString = [];
                 if (activeSlide.notes && activeSlide.notes.trim().length > 0) {
                     setSaveStatus(`Generating audio for slide ${activeSlide.index}...`);
-                    const buffer = await getAudioBuffer(activeSlide.notes, selectedVoice || undefined);
+                    const buffer = await getAudioBuffer(activeSlide.notes, undefined);
                     slidesAudioString.push({
                         index: activeSlide.index,
                         audioData: new Uint8Array(buffer)
@@ -588,7 +599,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                         <IconSettings size={16} />
                     </ActionIcon>
                 </Group>
-                <VoiceSelector value={selectedVoice} onChange={setSelectedVoice} />
+
                 <Group>
                     {isGenerating && <Text size="xs" c="dimmed">{genStatus}</Text>}
                     {isSaving && <Text size="xs" c="dimmed">{saveStatus}</Text>}
@@ -918,6 +929,20 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                                     <IconPilcrow style={{ width: rem(18), height: rem(18) }} />
                                 </ActionIcon>
                             </Tooltip>
+
+                            <div style={{ width: 1, height: 20, background: 'var(--mantine-color-dark-4)', margin: '0 8px' }} />
+
+                            <Box style={{ width: 160 }}>
+                                <Select
+                                    placeholder="Insert Speaker Tag"
+                                    data={Object.keys(mappings).filter(k => k !== '_default_').map(k => ({ value: k, label: `[${k}]` }))}
+                                    value={null}
+                                    onChange={(val) => { if (val) insertTag(`[${val}]\n`); }}
+                                    searchable
+                                    size="xs"
+                                    w={150}
+                                />
+                            </Box>
                         </Group>
 
                         {/* Text Box (Third) */}
@@ -938,7 +963,7 @@ export function ViewerPage({ slides: initialSlides, filePath, onSave, onBack }: 
                 </div>
             </div>
             {/* Overlays */}
-            <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            <SettingsModal opened={settingsOpen} onClose={() => { setSettingsOpen(false); loadSettings(); }} />
         </div>
     );
 }

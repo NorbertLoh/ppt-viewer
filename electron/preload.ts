@@ -10,4 +10,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
     getVoices: () => ipcRenderer.invoke('get-voices'),
     getGcpKeyPath: () => ipcRenderer.invoke('get-gcp-key-path'),
     setGcpKey: () => ipcRenderer.invoke('set-gcp-key'),
+    getSpeakerMappings: () => ipcRenderer.invoke('get-speaker-mappings'),
+    setSpeakerMappings: (mappings: Record<string, any>) => ipcRenderer.invoke('set-speaker-mappings', mappings),
+    getTtsProvider: () => ipcRenderer.invoke('get-tts-provider'),
 };

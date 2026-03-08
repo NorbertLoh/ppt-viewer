@@ -5,14 +5,16 @@ export interface Voice {
     name: string;
     languageCodes: string[];
     ssmlGender: string;
+    provider?: string;
 }
 
 interface VoiceSelectorProps {
     value: Voice | null;
     onChange: (voice: Voice) => void;
+    providerFilter?: 'gcp' | 'local';
 }
 
-export function VoiceSelector({ value, onChange }: VoiceSelectorProps) {
+export function VoiceSelector({ value, onChange, providerFilter }: VoiceSelectorProps) {
     const [voices, setVoices] = useState<Voice[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -26,15 +28,15 @@ export function VoiceSelector({ value, onChange }: VoiceSelectorProps) {
                 console.log('Fetched voices:', fetchedVoices);
                 setVoices(fetchedVoices);
 
-                // Set default if none selected or current selection is invalid
-                if (fetchedVoices.length > 0) {
-                    // Try to find a reasonable default if not provided
-                    if (!value) {
-                        // Prefer a Chirp3-HD voice if available (though backend should only return them now)
-                        const defaultVoice = fetchedVoices.find(v => v.name.includes('Chirp3-HD')) || fetchedVoices[0];
-                        onChange(defaultVoice);
-                    }
-                }
+                // Set default if none selected and NO value was given (only if we want to force a selection)
+                // However, SettingsModal has a `value={null}` state for new aliases temporarily. 
+                // We should NOT auto-trigger `onChange` because it immediately saves over the mapping array!
+                // If it's a completely empty value and it's NOT the settings modal forcing it empty:
+                // Actually, it's safer to just let the user pick.
+                // But for pure ViewerPage (if any), maybe it needs a default?
+                // The issue: when SettingsModal renders an existing alias with a SAVED voice, `value` IS provided. 
+                // But for a split second, or if the saved voice doesn't match the filtered `voices` list (different provider!), `value` is kept but we shouldn't overwrite it.
+                // Let's remove the auto-onChange entirely. The initial `value` provided by props is fine.
             } catch (err: any) {
                 console.error("Error fetching voices:", err);
                 setError("Failed to load voices");
@@ -57,13 +59,17 @@ export function VoiceSelector({ value, onChange }: VoiceSelectorProps) {
 
     if (error) return <Text size="xs" c="red">{error}</Text>;
 
+    const filteredVoices = providerFilter
+        ? voices.filter(v => v.provider === providerFilter)
+        : voices;
+
     return (
         <Group>
             <Select
                 placeholder="Select Voice"
-                data={voices.map(v => ({
+                data={filteredVoices.map(v => ({
                     value: v.name,
-                    label: `${v.name.split('/').pop()} (${v.ssmlGender})`
+                    label: `${v.name.split('/').pop()} (${v.provider === 'gcp' ? 'Google' : 'Local'}, ${v.ssmlGender})`
                 }))}
                 value={value?.name || null}
                 onChange={handleChange}

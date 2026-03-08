@@ -476,6 +476,16 @@ electron_1.ipcMain.handle('generate-video', async (event, { filePath, slidesAudi
 });
 // --- TTS Handler ---
 // --- Settings Handler ---
+electron_1.ipcMain.handle('get-tts-provider', async () => {
+    return getTtsProvider();
+});
+electron_1.ipcMain.handle('get-speaker-mappings', async () => {
+    return store.get('speakerMappings') || {};
+});
+electron_1.ipcMain.handle('set-speaker-mappings', async (event, mappings) => {
+    store.set('speakerMappings', mappings);
+    return { success: true };
+});
 electron_1.ipcMain.handle('get-gcp-key-path', async () => {
     return store.get('gcpKeyPath');
 });
@@ -680,42 +690,39 @@ electron_1.ipcMain.handle('sync-slide', async (event, { filePath, slideIndex }) 
 });
 // --- TTS Handler ---
 electron_1.ipcMain.handle('get-voices', async () => {
-    const provider = getTtsProvider();
-    console.log(`Get Voices Request. Provider: ${provider}`);
+    console.log(`Get Voices Request. Fetching from all configured providers...`);
     const keyPath = getGcpKeyPath();
+    const voices = [];
+    // 1. Fetch Google Cloud Voices
     try {
-        if (provider === 'gcp') {
-            if (!keyPath) {
-                console.warn("TTS_PROVIDER is 'gcp' but GOOGLE_APPLICATION_CREDENTIALS is missing.");
-                return [];
-            }
-            // Explicitly pass credentials if using stored path
-            const options = {};
-            if (keyPath) {
-                options.keyFilename = keyPath;
-            }
+        if (keyPath) {
+            const options = { keyFilename: keyPath };
             const client = new text_to_speech_1.TextToSpeechClient(options);
             const [result] = await client.listVoices({ languageCode: 'en-US' });
-            // Filter for Chirp 3 HD voices as requested
-            const voices = result.voices || [];
-            return voices.filter(v => v.name && v.name.includes('Chirp3-HD'));
+            if (result.voices) {
+                const gcpVoices = result.voices
+                    .filter(v => v.name && v.name.includes('Chirp3-HD'))
+                    .map(v => ({ ...v, provider: 'gcp' }));
+                voices.push(...gcpVoices);
+            }
         }
         else {
-            // Local fallback
-            return [
-                { name: 'en_UK/apope_low', ssmlGender: 'MALE', languageCodes: ['en-GB'] },
-                { name: 'default', ssmlGender: 'NEUTRAL', languageCodes: ['en-US'] }
-            ];
+            console.warn("GOOGLE_APPLICATION_CREDENTIALS is not set; skipping GCP voices.");
         }
     }
     catch (error) {
-        console.error("Failed to list voices:", error);
-        return [];
+        console.error("Failed to list GCP voices:", error);
     }
+    // 2. Add Local Voices
+    // TODO: Ideally we'd ping the local server's /api/voices endpoint if it had one.
+    // For now, we hardcode the known local fallback voices.
+    voices.push({ name: 'en_UK/apope_low', ssmlGender: 'MALE', languageCodes: ['en-GB'], provider: 'local' }, { name: 'en_US/cmu-arctic_low', ssmlGender: 'NEUTRAL', languageCodes: ['en-US'], provider: 'local' }, { name: 'default', ssmlGender: 'NEUTRAL', languageCodes: ['en-US'], provider: 'local' });
+    return voices;
 });
 electron_1.ipcMain.handle('generate-speech', async (event, { text, voiceOption }) => {
     // Determine provider: 'gcp' or 'local' (default)
-    const provider = getTtsProvider();
+    // If voiceOption specifies a provider, use that. Otherwise fallback to global provider logic.
+    const provider = voiceOption && voiceOption.provider ? voiceOption.provider : getTtsProvider();
     console.log(`TTS Request: "${text.substring(0, 20)}..." using provider: ${provider}, voice: ${voiceOption ? voiceOption.name : 'default'}`);
     try {
         if (provider === 'gcp') {
@@ -759,12 +766,23 @@ electron_1.ipcMain.handle('generate-speech', async (event, { text, voiceOption }
             const localUrl = process.env.LOCAL_TTS_URL || 'http://localhost:59125/api/tts';
             // Use selected voice name if available, else env default, else hardcoded default
             const voice = (voiceOption && voiceOption.name) || process.env.LOCAL_TTS_VOICE || 'en_UK/apope_low';
+            // Detect SSML (basic check for tags)
+            const isSsml = /<[^>]+>/.test(text);
+            let ssmlBody = text;
+            if (!isSsml) {
+                // If the user isn't providing raw SSML, wrap the text in a <voice> tag 
+                // so the local TTS server respects the voice selection when ssml=true.
+                ssmlBody = `<speak><voice name="${voice}">${ssmlBody}</voice></speak>`;
+            }
+            else if (!ssmlBody.trim().startsWith('<speak>')) {
+                ssmlBody = `<speak>${ssmlBody}</speak>`;
+            }
             // Construct URL with params
             const url = new URL(localUrl);
-            url.searchParams.append('voice', voice);
+            url.searchParams.append('voice', voice); // Fallback if API needs it
             url.searchParams.append('ssml', 'true');
-            // Clean text (basic)
-            const sanitizedText = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+            // Clean text (basic) while preserving tags
+            const sanitizedText = ssmlBody.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
             const resp = await fetch(url.toString(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },

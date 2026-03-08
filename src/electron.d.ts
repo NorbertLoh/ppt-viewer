@@ -20,8 +20,12 @@ declare global {
             selectFile: () => Promise<string | null>;
             saveAllNotes: (filePath: string, slides: Slide[]) => Promise<{ success: boolean; error?: string }>;
             getVoices: () => Promise<any[]>;
-            getGcpKeyPath: () => Promise<string | undefined>;
+            getGcpKeyPath: () => Promise<string | null>;
             setGcpKey: () => Promise<{ success: boolean; path?: string; error?: string }>;
+            setInsertMethod: (method: string) => Promise<void>;
+            getSpeakerMappings: () => Promise<Record<string, any>>;
+            setSpeakerMappings: (mappings: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+            getTtsProvider: () => Promise<'gcp' | 'local'>;
         };
     }
 }
